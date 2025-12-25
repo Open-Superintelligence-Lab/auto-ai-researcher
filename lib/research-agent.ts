@@ -2,7 +2,8 @@ import { GoogleGenAI } from '@google/genai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateText } from 'ai';
 import { z } from 'zod';
-import { ResearchIdea, ResearchReport } from '@/types/research';
+import { ResearchIdea, ResearchReport, ResearchPaper } from '@/types/research';
+import { LiteratureService } from './services/literature';
 
 const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY || '',
@@ -259,5 +260,48 @@ export class ResearchAgent {
         this.logDebug('response', 'deepDive', JSON.stringify(object, null, 2));
 
         return object;
+    }
+
+    async searchLiterature(topic: string): Promise<ResearchPaper[]> {
+        const papers = await LiteratureService.search(topic);
+        if (papers.length === 0) return [];
+
+        return this.rankPapers(topic, papers);
+    }
+
+    async rankPapers(topic: string, papers: ResearchPaper[]): Promise<ResearchPaper[]> {
+        console.log(`[ResearchAgent] Ranking ${papers.length} papers for topic: ${topic}`);
+
+        const prompt = `Rank these research papers by their direct relevance to the topic: "${topic}".
+      Assign a Relevance Score (1-100) to each.
+      
+      Provide your response EXACTLY as a JSON object with this structure:
+      {
+        "rankings": [
+          { "id": "...", "relevance": number },
+          ...
+        ]
+      }
+
+      Papers to rank:
+      ${JSON.stringify(papers.map(p => ({ id: p.id, title: p.title, summary: p.summary.slice(0, 300) + '...' })), null, 2)}`;
+
+        const schema = z.object({
+            rankings: z.array(z.object({
+                id: z.string(),
+                relevance: z.number().min(0).max(100),
+            })),
+        });
+
+        const object = await this.callLLM(prompt, schema, 'rankPapers');
+
+        // Merge rankings back
+        return papers.map(p => {
+            const ranking = object.rankings.find(r => r.id === p.id);
+            return {
+                ...p,
+                relevance: ranking ? ranking.relevance : 0
+            };
+        }).sort((a, b) => b.relevance - a.relevance);
     }
 }

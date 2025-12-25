@@ -37,19 +37,7 @@ export async function POST(req: Request) {
                     ] as const;
                     sendUpdate({ type: 'tasks', tasks });
 
-                    // Simulating paper discovery
-                    const papers = [
-                        {
-                            id: 'p1', title: 'Attention Is All You Need', authors: ['Vaswani et al.'], year: 2017,
-                            citationCount: 120000, relevance: 98, summary: 'The seminal paper introducing the Transformer architecture which relies entirely on attention mechanisms.',
-                            url: 'https://arxiv.org/abs/1706.03762'
-                        },
-                        {
-                            id: 'p2', title: 'Deep Residual Learning for Image Recognition', authors: ['He et al.'], year: 2015,
-                            citationCount: 180000, relevance: 85, summary: 'Introduced residual learning frameworks to ease the training of networks that are substantially deeper.',
-                            url: 'https://arxiv.org/abs/1512.03385'
-                        }
-                    ];
+                    const papers = await agent.searchLiterature(topic);
                     sendUpdate({ type: 'papers', papers });
 
                     const ideas = await agent.brainstorm(topic);
