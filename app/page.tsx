@@ -78,7 +78,7 @@ export default function ResearchDashboard() {
       messages: [{
         id: `u-${Date.now()}`,
         role: 'user',
-        content: `I'm interested in: ${topic}. Tell me more about it before we start research.`,
+        content: `Hi! I'm interested in ${topic}.`,
         type: 'text'
       }]
     }));
@@ -94,7 +94,7 @@ export default function ResearchDashboard() {
           model: selectedModel,
           executionMode: state.executionMode,
           isResearchMode: false,
-          history: [{ role: 'user', content: `I'm interested in: ${topic}. Tell me more about it before we start research.` }]
+          history: [{ role: 'user', content: `Hi! I'm interested in ${topic}.` }]
         }),
       });
 

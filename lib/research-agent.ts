@@ -78,32 +78,23 @@ export class ResearchAgent {
             return { phase: 'awaiting-plan-approval', plan };
         }
 
-        if (history.length === 0 && this.onMessage) {
-            this.onMessage({
-                id: `msg-${Date.now()}`,
-                role: 'assistant',
-                content: 'Hi! I am your research agent. I will begin by exploring the literature and brainstorming some novel hypotheses for you.',
-                type: 'text'
-            });
+        // Only log thought in research mode
+        if (isResearchMode) {
+            this.logThought(`Initializing agentic research loop stage for: "${topic}"`);
         }
 
-        this.logThought(`Initializing agentic research loop stage for: "${topic}"`);
+        const combinedMessages = history;
 
-        const combinedMessages = history.length === 0
-            ? [{ role: 'user', content: `Start researching "${topic}". Begin with literature discovery.` }]
-            : history;
-
-        const systemPrompt = isResearchMode
-            ? `You are an autonomous research agent. Your goal is to research "${topic}".
+        const systemPrompt = `You are an autonomous research agent. Your goal is to research whatever user tells yout to research.
             Follow these steps:
             1. Search literature to understand the field.
             2. Brainstorm several novel ideas based on the literature.
             You must call tools to perform these actions.
-            Always explain your reasoning before calling a tool.`
-            : `You are a helpful research assistant. Chat with the user about their topic: "${topic}". 
-            Be helpful, informative, and collaborative. 
-            Do NOT use any tools or start the research pipeline yet. 
-            Simply discuss the topic and wait for the user to tell you to begin the research.`;
+            Always explain your reasoning before calling a tool.
+            
+            IMPORTANT: Do NOT use any tools or start the research pipeline unless the user explicitly asks you to. 
+            Just chat naturally and answer their questions. When they're ready to begin autonomous research, 
+            they will tell you, and then you can use tools.`
 
         const result = await streamText({
             model: this.aiModel,
