@@ -1,5 +1,5 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { streamText } from 'ai';
+import { streamText, convertToCoreMessages } from 'ai';
 
 export const maxDuration = 30;
 
@@ -12,7 +12,7 @@ export async function POST(req: Request) {
 
     const result = await streamText({
         model: openrouter.chat('xiaomi/mimo-v2-flash:free'),
-        messages,
+        messages: convertToCoreMessages(messages),
     });
 
     return result.toUIMessageStreamResponse();
