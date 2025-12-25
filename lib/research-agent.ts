@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateText } from 'ai';
 import { z } from 'zod';
-import { ResearchIdea, ResearchReport, ResearchPaper } from '@/types/research';
+import { ResearchIdea, ResearchReport, ResearchPaper, ResearchThought } from '@/types/research';
 import { LiteratureService } from './services/literature';
 
 const openrouter = createOpenRouter({
@@ -15,29 +15,107 @@ const genAI = new GoogleGenAI({
 
 export type ProviderType = 'openrouter' | 'google';
 
-// Using a cost-effective model for the research loop
-// Using a reliable free model for the research loop
 export class ResearchAgent {
     private provider: ProviderType;
     private modelId: string;
     private aiModel: any; // Can be LanguageModel or GenAI model
     private onDebug?: (log: import('@/types/research').ResearchDebugLog) => void;
     private debugCounter = 0;
+    private onThought?: (thought: import('@/types/research').ResearchThought) => void;
+    private onUpdate?: (update: any) => void;
 
     constructor(
         provider: ProviderType = 'openrouter',
         modelId: string = 'nvidia/nemotron-3-nano-30b-a3b:free',
-        onDebug?: (log: import('@/types/research').ResearchDebugLog) => void
+        options?: {
+            onDebug?: (log: import('@/types/research').ResearchDebugLog) => void,
+            onThought?: (thought: import('@/types/research').ResearchThought) => void,
+            onUpdate?: (update: any) => void
+        }
     ) {
         this.provider = provider;
         this.modelId = modelId;
-        this.onDebug = onDebug;
+        this.onDebug = options?.onDebug;
+        this.onThought = options?.onThought;
+        this.onUpdate = options?.onUpdate;
 
         if (provider === 'google') {
             // No direct initialization here anymore, handled in call
         } else {
             this.aiModel = openrouter.chat(modelId) as unknown as import('ai').LanguageModel;
         }
+    }
+
+    private logThought(content: string) {
+        if (this.onThought) {
+            this.onThought({
+                id: `thought-${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                content
+            });
+        }
+    }
+
+    async runAutonomous(topic: string) {
+        this.logThought(`Initializing agentic research loop for: "${topic}"`);
+
+        const result = await generateText({
+            model: this.aiModel,
+            system: `You are an autonomous research agent. Your goal is to research "${topic}".
+            Follow these steps:
+            1. Search literature to understand the field.
+            2. Brainstorm several novel ideas based on the literature.
+            You must call tools to perform these actions.
+            Always explain your reasoning before calling a tool.`,
+            prompt: `Start researching "${topic}". Begin with literature discovery.`,
+            tools: {
+                searchLiterature: {
+                    description: 'Search for scientific papers on a topic.',
+                    inputSchema: z.object({ topic: z.string() }),
+                    execute: async ({ topic }: { topic: string }) => {
+                        this.logThought(`Searching literature for: ${topic}`);
+                        const papers = await this.searchLiterature(topic);
+                        if (this.onUpdate) this.onUpdate({ type: 'papers', papers });
+                        return papers.map(p => ({ title: p.title, summary: p.summary, year: p.year }));
+                    }
+                },
+                brainstormIdeas: {
+                    description: 'Generate research ideas/hypotheses.',
+                    inputSchema: z.object({ topic: z.string(), context: z.string() }),
+                    execute: async ({ topic }: { topic: string, context: string }) => {
+                        this.logThought(`Brainstorming new hypotheses for: ${topic}`);
+                        const ideas = await this.brainstorm(topic);
+                        if (this.onUpdate) this.onUpdate({ type: 'ideas', ideas });
+                        return ideas.map(i => i.title);
+                    }
+                }
+            },
+            onStepFinish: (event: any) => {
+                if (event.text) {
+                    this.logThought(event.text);
+                }
+            }
+        });
+
+        this.logThought("I have completed the initial discovery and ideation phase. Please review the hypotheses below.");
+        return { phase: 'awaiting-selection' };
+    }
+
+    async runDeepDive(selectedIdea: ResearchIdea) {
+        this.logThought(`Proceeding with: "${selectedIdea.title}".`);
+
+        // Step 3: Evaluation
+        this.logThought("Running feasibility and impact evaluation...");
+        const evaluated = await this.evaluate([selectedIdea]);
+        if (this.onUpdate) this.onUpdate({ type: 'ideas', ideas: evaluated });
+
+        // Step 4: Report
+        this.logThought("Writing the final research report...");
+        const report = await this.deepDive(evaluated[0]);
+        if (this.onUpdate) this.onUpdate({ type: 'report', report });
+
+        this.logThought("Research complete. The final report is ready in the Archives.");
+        return { phase: 'complete' };
     }
 
     private async callLLM<T>(prompt: string, schema: z.ZodType<T>, step: string, retries: number = 2): Promise<T> {

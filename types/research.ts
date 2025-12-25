@@ -23,6 +23,12 @@ export interface ResearchReport {
     references?: string[];
 }
 
+export interface ResearchThought {
+    id: string;
+    timestamp: string;
+    content: string;
+}
+
 export interface ResearchState {
     phase: ResearchPhase;
     topic: string;
@@ -31,6 +37,7 @@ export interface ResearchState {
     report?: ResearchReport;
     logs: string[];
     debugLogs: ResearchDebugLog[];
+    thoughts: ResearchThought[];
     tasks: ResearchTask[];
     papers: ResearchPaper[];
     resources: {
@@ -74,4 +81,5 @@ export type ResearchUpdate =
     | { type: 'report'; report: ResearchReport }
     | { type: 'tasks'; tasks: ResearchTask[] }
     | { type: 'papers'; papers: ResearchPaper[] }
+    | { type: 'thought'; thought: ResearchThought }
     | { type: 'error'; message: string };

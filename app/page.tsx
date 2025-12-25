@@ -18,6 +18,7 @@ export default function ResearchDashboard() {
     ideas: [],
     logs: [],
     debugLogs: [],
+    thoughts: [],
     tasks: [],
     papers: [],
     resources: {
@@ -173,6 +174,11 @@ export default function ResearchDashboard() {
         case 'report':
           next.report = update.report;
           break;
+        case 'thought':
+          next.thoughts = [...(prev.thoughts || []), update.thought];
+          // Also add to logs for backward compatibility or simple view
+          next.logs = [...prev.logs, update.thought.content];
+          break;
         case 'error':
           next.logs = [...prev.logs, `ERROR: ${update.message}`];
           break;
@@ -218,6 +224,7 @@ export default function ResearchDashboard() {
             onClick={() => setActiveTab('literature')}
             icon={<FlaskConical className="w-4 h-4" />}
             label="Literature"
+            badge={state.papers.length > 0 ? state.papers.length : undefined}
           />
           <NavButton
             active={activeTab === 'reports'}
@@ -365,6 +372,32 @@ export default function ResearchDashboard() {
               <div className="lg:col-span-3 flex flex-col gap-6 overflow-hidden">
                 {activeTab === 'research' ? (
                   <div className="flex-1 overflow-y-auto pr-2 pb-20 scrollbar-hide">
+                    {/* Thinking Terminal */}
+                    {state.thoughts.length > 0 && (
+                      <div className="mb-6 p-4 rounded-xl border border-purple-500/20 bg-purple-500/5 backdrop-blur-sm relative overflow-hidden group">
+                        <div className="absolute top-0 left-0 w-1 h-full bg-purple-500/50" />
+                        <div className="flex items-center gap-2 mb-2">
+                          <Zap className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                          <span className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Agent Reasoning</span>
+                        </div>
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={state.thoughts[state.thoughts.length - 1].id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-sm text-zinc-300 font-medium leading-relaxed"
+                          >
+                            {state.thoughts[state.thoughts.length - 1].content}
+                          </motion.div>
+                        </AnimatePresence>
+                        <div className="mt-3 flex gap-1">
+                          {state.thoughts.slice(-5).map((t, i) => (
+                            <div key={t.id} className={cn("h-1 flex-1 rounded-full", i === 4 ? "bg-purple-500" : "bg-purple-500/20")} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Autonomous Status Bar */}
                     <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="p-4 rounded-xl border border-white/5 bg-white/[0.02] flex items-center gap-4">
@@ -569,29 +602,36 @@ export default function ResearchDashboard() {
   );
 }
 
-function NavButton({ icon, label, active, onClick, disabled }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void, disabled?: boolean }) {
+function NavButton({ icon, label, active, onClick, disabled, badge }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void, disabled?: boolean, badge?: number }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all group relative",
+        "w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium transition-all group relative",
         active
           ? "bg-purple-500/10 text-purple-300 border border-purple-500/20"
           : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03] border border-transparent",
         disabled && "opacity-40 cursor-not-allowed grayscale"
       )}
     >
-      {active && (
-        <motion.div
-          layoutId="sidebar-active"
-          className="absolute inset-0 bg-purple-500/5 rounded-xl -z-10"
-        />
+      <div className="flex items-center gap-3">
+        {active && (
+          <motion.div
+            layoutId="sidebar-active"
+            className="absolute inset-0 bg-purple-500/5 rounded-xl -z-10"
+          />
+        )}
+        <span className={cn("transition-colors", active ? "text-purple-400" : "group-hover:text-zinc-300")}>
+          {icon}
+        </span>
+        {label}
+      </div>
+      {badge && (
+        <span className="px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-400 text-[10px] font-bold">
+          {badge}
+        </span>
       )}
-      <span className={cn("transition-colors", active ? "text-purple-400" : "group-hover:text-zinc-300")}>
-        {icon}
-      </span>
-      {label}
     </button>
   );
 }
