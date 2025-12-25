@@ -176,18 +176,40 @@ export default function ResearchDashboard() {
           next.papers = update.papers;
           break;
         case 'tool-call':
+          // If we have a transcript, save it as assistant message first so history is correct
+          if (prev.transcript) {
+            next.messages = [...prev.messages, {
+              id: `a-${Date.now()}`,
+              role: 'assistant' as const,
+              content: prev.transcript
+            }];
+            next.transcript = '';
+          }
           next.pendingToolCalls = [...prev.pendingToolCalls, update.toolCall];
+
+          // Auto-execute research tools
+          console.log('[UI] Auto-executing tool:', update.toolCall.toolName);
+          setTimeout(() => executeTool(update.toolCall), 500);
           break;
         case 'tool-result':
-          next.pendingToolCalls = prev.pendingToolCalls.filter(tc => tc.toolCallId !== update.toolCallId);
-          // Add bot message and continue
-          const resultMsg = { role: 'tool', toolCallId: update.toolCallId, content: JSON.stringify(update.result) };
-          const history = [...state.messages, resultMsg];
-          setTimeout(() => continueChat(history), 100);
+          next.pendingToolCalls = prev.pendingToolCalls.filter(tc => (tc.toolCallId || tc.id) !== update.toolCallId);
+
+          const resultMsg = {
+            id: `tr-${Date.now()}`,
+            role: 'tool' as any,
+            toolCallId: update.toolCallId,
+            content: JSON.stringify(update.result)
+          };
+
+          next.messages = [...prev.messages, resultMsg];
+          // Clear transcript in case there was any
           next.transcript = '';
+
+          // Trigger the continuation
+          setTimeout(() => continueChat(next.messages), 100);
           break;
         case 'error':
-          console.error('Error:', update.message);
+          console.error('[AGENT ERROR]:', update.message);
           break;
       }
       return next;
@@ -262,14 +284,14 @@ export default function ResearchDashboard() {
                   className={`flex gap-5 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
                 >
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center border shrink-0 shadow-lg ${msg.role === 'user'
-                      ? 'bg-gradient-to-br from-blue-500/20 to-blue-600/10 border-blue-500/30 ring-1 ring-blue-500/10'
-                      : 'bg-gradient-to-br from-purple-500/30 to-purple-600/10 border-purple-500/40 ring-1 ring-purple-500/10 shadow-purple-500/5'
+                    ? 'bg-gradient-to-br from-blue-500/20 to-blue-600/10 border-blue-500/30 ring-1 ring-blue-500/10'
+                    : 'bg-gradient-to-br from-purple-500/30 to-purple-600/10 border-purple-500/40 ring-1 ring-purple-500/10 shadow-purple-500/5'
                     }`}>
                     {msg.role === 'user' ? <LayoutDashboard className="w-4.5 h-4.5 text-blue-400" /> : <Cpu className="w-4.5 h-4.5 text-purple-300" />}
                   </div>
                   <div className={`p-5 rounded-2xl text-sm max-w-[85%] leading-relaxed shadow-sm ${msg.role === 'user'
-                      ? 'bg-blue-600/10 border border-blue-500/20 rounded-tr-none text-zinc-200'
-                      : 'bg-white/[0.03] border border-white/10 rounded-tl-none text-zinc-300 backdrop-blur-sm shadow-black/20'
+                    ? 'bg-blue-600/10 border border-blue-500/20 rounded-tr-none text-zinc-200'
+                    : 'bg-white/[0.03] border border-white/10 rounded-tl-none text-zinc-300 backdrop-blur-sm shadow-black/20'
                     }`}>
                     <MarkdownRenderer content={msg.content} />
                   </div>

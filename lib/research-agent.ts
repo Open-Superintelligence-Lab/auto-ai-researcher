@@ -36,16 +36,31 @@ export class ResearchAgent {
         this.onText = options?.onText;
 
         if (provider === 'google') {
-            // Handled in the call
+            const { createGoogleGenerativeAI } = require('@ai-sdk/google');
+            const google = createGoogleGenerativeAI({
+                apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '',
+            });
+            this.aiModel = google(modelId);
         } else {
             this.aiModel = openrouter.chat(modelId) as unknown as import('ai').LanguageModel;
         }
     }
 
     async chat(messages: any[]) {
-        const systemPrompt = `You are a helpful AI research assistant. You can search for scientific papers and brainstorm research ideas when asked.
-        
-Be conversational and helpful. Use tools when appropriate to help the user.`;
+        const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || 'current topic';
+
+        const systemPrompt = `You are an elite autonomous research agent. Your goal is to research topics thoroughly using scientific literature.
+
+Current context: User is asking about "${lastUserMessage}"
+
+When asked to research a topic:
+1. Use 'searchLiterature' to find relevant papers. Use the specific research topic as the 'topic' argument.
+2. Once you have papers, analyze them and use 'brainstormIdeas' to generate novel hypotheses.
+3. Present your findings clearly using Markdown with nice headings and structure.
+
+Example tool usage: searchLiterature({ topic: "transformer architecture RoPE" })
+
+Be proactive and scientific. Always try to find papers first.`;
 
         const result = await streamText({
             model: this.aiModel,
@@ -53,12 +68,12 @@ Be conversational and helpful. Use tools when appropriate to help the user.`;
             messages: messages,
             tools: {
                 searchLiterature: {
-                    description: 'Search for scientific papers on a topic.',
+                    description: 'Search for scientific papers on a topic. Topic should be specific.',
                     inputSchema: z.object({ topic: z.string() }),
                 },
                 brainstormIdeas: {
-                    description: 'Generate research ideas/hypotheses.',
-                    inputSchema: z.object({ topic: z.string(), context: z.string() }),
+                    description: 'Generate research ideas/hypotheses based on a topic.',
+                    inputSchema: z.object({ topic: z.string(), context: z.string().optional() }),
                 }
             },
         });
@@ -71,9 +86,15 @@ Be conversational and helpful. Use tools when appropriate to help the user.`;
 
         const toolCalls = await result.toolCalls;
         if (toolCalls && toolCalls.length > 0) {
+            console.log('[AGENT] Tool calls suggested:', toolCalls.map(t => t.toolName));
             if (this.onUpdate) {
                 for (const tc of toolCalls) {
-                    this.onUpdate({ type: 'tool-call', toolCall: tc });
+                    // Inject last user message as fallback if args are missing/empty
+                    const toolCall = tc as any;
+                    if (!toolCall.args || Object.keys(toolCall.args).length === 0) {
+                        toolCall.args = { topic: lastUserMessage };
+                    }
+                    this.onUpdate({ type: 'tool-call', toolCall });
                 }
             }
             return { toolCalls };
@@ -83,13 +104,21 @@ Be conversational and helpful. Use tools when appropriate to help the user.`;
     }
 
     async executeTool(toolName: string, args: any) {
+        console.log(`[AGENT] Executing tool ${toolName} with args:`, args);
+
+        // Final safety check for args
+        const safeArgs = args || {};
+
         if (toolName === 'searchLiterature') {
-            const papers = await this.searchLiterature(args.topic);
+            const topic = safeArgs.topic || safeArgs.query || safeArgs.topicQuery || 'latest research';
+            console.log(`[AGENT] Searching for topic: ${topic}`);
+            const papers = await this.searchLiterature(topic);
             if (this.onUpdate) this.onUpdate({ type: 'papers', papers });
             return papers.map(p => ({ title: p.title, summary: p.summary, year: p.year }));
         }
         if (toolName === 'brainstormIdeas') {
-            const ideas = await this.brainstorm(args.topic);
+            const topic = safeArgs.topic || safeArgs.query || 'novel research directions';
+            const ideas = await this.brainstorm(topic);
             if (this.onUpdate) this.onUpdate({ type: 'ideas', ideas });
             return ideas.map(i => i.title);
         }

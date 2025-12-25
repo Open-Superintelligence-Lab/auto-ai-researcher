@@ -4,7 +4,7 @@ export class LiteratureService {
     private static SEMANTIC_SCHOLAR_URL = 'https://api.semanticscholar.org/graph/v1/paper/search';
 
     static async search(query: string, limit: number = 8): Promise<ResearchPaper[]> {
-        if (process.env.NEXT_PUBLIC_MOCK_LITERATURE === 'true' || true) {
+        if (process.env.NEXT_PUBLIC_MOCK_LITERATURE === 'true') {
             console.log(`[LiteratureService] MOCK MODE: Returning fake papers for ${query}`);
             return [
                 {
