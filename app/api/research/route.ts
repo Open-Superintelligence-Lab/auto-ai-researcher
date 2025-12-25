@@ -5,7 +5,17 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
     console.log('[API] Research request received');
-    const { topic, mode = 'start', selectedId, ideas: existingIdeas, provider = 'openrouter', model = 'openai/gpt-4o-mini' } = await req.json();
+    const {
+        topic,
+        mode = 'start',
+        selectedId,
+        ideas: existingIdeas,
+        provider = 'openrouter',
+        model = 'openai/gpt-4o-mini',
+        executionMode = 'fast',
+        history = [],
+        toolCall = null
+    } = await req.json();
     console.log(`[API] Mode: ${mode}, Provider: ${provider}, Model: ${model}`);
 
     const encoder = new TextEncoder();
@@ -21,13 +31,28 @@ export async function POST(req: Request) {
             const agent = new ResearchAgent(provider, model, {
                 onDebug: (debugLog) => sendUpdate({ type: 'debug', log: debugLog }),
                 onThought: (thought) => sendUpdate({ type: 'thought', thought }),
-                onUpdate: (update) => sendUpdate(update)
+                onUpdate: (update) => sendUpdate(update),
+                onText: (text) => {
+                    controller.enqueue(encoder.encode(`0: ${JSON.stringify(text)}\n`));
+                },
+                onMessage: (message) => sendUpdate({ type: 'message', message })
             });
 
             try {
                 if (mode === 'start') {
-                    const result = await agent.runAutonomous(topic);
+                    const result = await agent.runAutonomous(topic, executionMode as 'plan' | 'fast', history);
                     sendUpdate({ type: 'phase', phase: result.phase });
+                }
+
+                if (mode === 'approve-plan') {
+                    const result = await agent.runAutonomous(topic, 'fast', history);
+                    sendUpdate({ type: 'phase', phase: result.phase });
+                }
+
+                if (mode === 'call-tool') {
+                    if (!toolCall) throw new Error('Missing toolCall for call-tool mode');
+                    const result = await agent.executeTool(toolCall.toolName, toolCall.args);
+                    sendUpdate({ type: 'tool-result', result, toolCallId: toolCall.toolCallId });
                 }
 
                 if (mode === 'proceed') {

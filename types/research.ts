@@ -1,5 +1,5 @@
 
-export type ResearchPhase = 'initial' | 'brainstorming' | 'awaiting-selection' | 'evaluating' | 'deep-diving' | 'complete' | 'error';
+export type ResearchPhase = 'initial' | 'brainstorming' | 'awaiting-selection' | 'evaluating' | 'deep-diving' | 'complete' | 'error' | 'awaiting-plan-approval';
 
 export interface ResearchIdea {
     id: string;
@@ -29,6 +29,13 @@ export interface ResearchThought {
     content: string;
 }
 
+export interface ChatMessage {
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    type: 'text' | 'thought' | 'action' | 'result';
+}
+
 export interface ResearchState {
     phase: ResearchPhase;
     topic: string;
@@ -40,6 +47,12 @@ export interface ResearchState {
     thoughts: ResearchThought[];
     tasks: ResearchTask[];
     papers: ResearchPaper[];
+    transcript: string;
+    messages: ChatMessage[];
+    aiHistory: any[];
+    executionMode: 'plan' | 'fast';
+    researchPlan?: string;
+    pendingToolCalls: any[];
     resources: {
         gpus: { id: string; name: string; utilization: number; memory: string }[];
     };
@@ -81,5 +94,9 @@ export type ResearchUpdate =
     | { type: 'report'; report: ResearchReport }
     | { type: 'tasks'; tasks: ResearchTask[] }
     | { type: 'papers'; papers: ResearchPaper[] }
+    | { type: 'plan'; plan: string }
+    | { type: 'tool-call'; toolCall: any }
+    | { type: 'tool-result'; result: any, toolCallId: string }
     | { type: 'thought'; thought: ResearchThought }
+    | { type: 'message'; message: ChatMessage }
     | { type: 'error'; message: string };

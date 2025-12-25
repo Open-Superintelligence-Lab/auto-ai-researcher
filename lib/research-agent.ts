@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { generateText } from 'ai';
+import { generateText, streamText } from 'ai';
 import { z } from 'zod';
 import { ResearchIdea, ResearchReport, ResearchPaper, ResearchThought } from '@/types/research';
 import { LiteratureService } from './services/literature';
@@ -23,6 +23,8 @@ export class ResearchAgent {
     private debugCounter = 0;
     private onThought?: (thought: import('@/types/research').ResearchThought) => void;
     private onUpdate?: (update: any) => void;
+    private onText?: (text: string) => void;
+    private onMessage?: (message: import('@/types/research').ChatMessage) => void;
 
     constructor(
         provider: ProviderType = 'openrouter',
@@ -30,7 +32,9 @@ export class ResearchAgent {
         options?: {
             onDebug?: (log: import('@/types/research').ResearchDebugLog) => void,
             onThought?: (thought: import('@/types/research').ResearchThought) => void,
-            onUpdate?: (update: any) => void
+            onUpdate?: (update: any) => void,
+            onText?: (text: string) => void,
+            onMessage?: (message: import('@/types/research').ChatMessage) => void
         }
     ) {
         this.provider = provider;
@@ -38,6 +42,8 @@ export class ResearchAgent {
         this.onDebug = options?.onDebug;
         this.onThought = options?.onThought;
         this.onUpdate = options?.onUpdate;
+        this.onText = options?.onText;
+        this.onMessage = options?.onMessage;
 
         if (provider === 'google') {
             // No direct initialization here anymore, handled in call
@@ -56,10 +62,38 @@ export class ResearchAgent {
         }
     }
 
-    async runAutonomous(topic: string) {
-        this.logThought(`Initializing agentic research loop for: "${topic}"`);
+    async runAutonomous(topic: string, mode: 'plan' | 'fast' = 'fast', history: any[] = []) {
+        if (mode === 'plan' && history.length === 0) {
+            this.logThought(`[PLAN MODE] Formulating a research strategy for: "${topic}"`);
+            const plan = await this.generatePlan(topic);
+            if (this.onUpdate) this.onUpdate({ type: 'plan', plan });
+            if (this.onMessage) {
+                this.onMessage({
+                    id: `plan-${Date.now()}`,
+                    role: 'assistant',
+                    content: `Here is my proposed research plan for **${topic}**:\n\n${plan}\n\nShall I proceed with literature discovery?`,
+                    type: 'text'
+                });
+            }
+            return { phase: 'awaiting-plan-approval', plan };
+        }
 
-        const result = await generateText({
+        if (history.length === 0 && this.onMessage) {
+            this.onMessage({
+                id: `msg-${Date.now()}`,
+                role: 'assistant',
+                content: 'Hi! I am your research agent. I will begin by exploring the literature and brainstorming some novel hypotheses for you.',
+                type: 'text'
+            });
+        }
+
+        this.logThought(`Initializing agentic research loop stage for: "${topic}"`);
+
+        const combinedMessages = history.length === 0
+            ? [{ role: 'user', content: `Start researching "${topic}". Begin with literature discovery.` }]
+            : history;
+
+        const result = await streamText({
             model: this.aiModel,
             system: `You are an autonomous research agent. Your goal is to research "${topic}".
             Follow these steps:
@@ -67,35 +101,42 @@ export class ResearchAgent {
             2. Brainstorm several novel ideas based on the literature.
             You must call tools to perform these actions.
             Always explain your reasoning before calling a tool.`,
-            prompt: `Start researching "${topic}". Begin with literature discovery.`,
+            messages: combinedMessages,
             tools: {
                 searchLiterature: {
                     description: 'Search for scientific papers on a topic.',
                     inputSchema: z.object({ topic: z.string() }),
-                    execute: async ({ topic }: { topic: string }) => {
-                        this.logThought(`Searching literature for: ${topic}`);
-                        const papers = await this.searchLiterature(topic);
-                        if (this.onUpdate) this.onUpdate({ type: 'papers', papers });
-                        return papers.map(p => ({ title: p.title, summary: p.summary, year: p.year }));
-                    }
                 },
                 brainstormIdeas: {
                     description: 'Generate research ideas/hypotheses.',
                     inputSchema: z.object({ topic: z.string(), context: z.string() }),
-                    execute: async ({ topic }: { topic: string, context: string }) => {
-                        this.logThought(`Brainstorming new hypotheses for: ${topic}`);
-                        const ideas = await this.brainstorm(topic);
-                        if (this.onUpdate) this.onUpdate({ type: 'ideas', ideas });
-                        return ideas.map(i => i.title);
-                    }
                 }
             },
-            onStepFinish: (event: any) => {
-                if (event.text) {
-                    this.logThought(event.text);
+        });
+
+        let fullText = '';
+        for await (const textPart of result.textStream) {
+            fullText += textPart;
+            if (this.onText) this.onText(textPart);
+        }
+
+        if (fullText && this.onUpdate) {
+            this.onUpdate({
+                type: 'thought',
+                thought: { id: `t-${Date.now()}`, content: fullText, timestamp: new Date() }
+            });
+        }
+
+        const toolCalls = await result.toolCalls;
+        if (toolCalls && toolCalls.length > 0) {
+            this.logThought(`[SYSTEM] Agent suggested tool calls: ${toolCalls.map(t => t.toolName).join(', ')}`);
+            if (this.onUpdate) {
+                for (const tc of toolCalls) {
+                    this.onUpdate({ type: 'tool-call', toolCall: tc });
                 }
             }
-        });
+            return { phase: 'awaiting-tool-approval', toolCalls };
+        }
 
         this.logThought("I have completed the initial discovery and ideation phase. Please review the hypotheses below.");
         return { phase: 'awaiting-selection' };
@@ -105,17 +146,60 @@ export class ResearchAgent {
         this.logThought(`Proceeding with: "${selectedIdea.title}".`);
 
         // Step 3: Evaluation
-        this.logThought("Running feasibility and impact evaluation...");
+        this.logThought("[ACTION] Running feasibility and impact evaluation...");
         const evaluated = await this.evaluate([selectedIdea]);
         if (this.onUpdate) this.onUpdate({ type: 'ideas', ideas: evaluated });
+        this.logThought("[RESULT] Evaluation complete. Feasibility and impact scores updated.");
 
         // Step 4: Report
-        this.logThought("Writing the final research report...");
+        this.logThought("[ACTION] Writing the final research report...");
         const report = await this.deepDive(evaluated[0]);
         if (this.onUpdate) this.onUpdate({ type: 'report', report });
+        this.logThought("[RESULT] Report finalized.");
 
         this.logThought("Research complete. The final report is ready in the Archives.");
         return { phase: 'complete' };
+    }
+
+    async executeTool(toolName: string, args: any) {
+        if (toolName === 'searchLiterature') {
+            this.logThought(`[ACTION] Searching literature for: ${args.topic}`);
+            const papers = await this.searchLiterature(args.topic);
+            if (this.onUpdate) this.onUpdate({ type: 'papers', papers });
+            this.logThought(`[RESULT] Found ${papers.length} relevant papers.`);
+            return papers.map(p => ({ title: p.title, summary: p.summary, year: p.year }));
+        }
+        if (toolName === 'brainstormIdeas') {
+            this.logThought(`[ACTION] Brainstorming new hypotheses for: ${args.topic}`);
+            const ideas = await this.brainstorm(args.topic);
+            if (this.onUpdate) this.onUpdate({ type: 'ideas', ideas });
+            this.logThought(`[RESULT] Generated ${ideas.length} novel research directions.`);
+            return ideas.map(i => i.title);
+        }
+        throw new Error(`Unknown tool: ${toolName}`);
+    }
+
+    async generatePlan(topic: string): Promise<string> {
+        const prompt = `Create a structured research plan for the topic: "${topic}".
+        The plan should include:
+        1. Core Objectives
+        2. Key Literature Areas to Explore
+        3. Potential Methodological Approaches
+        4. Expected Novel Contributions
+        
+        Keep it concise but professional.`;
+
+        const result = await streamText({
+            model: this.aiModel,
+            prompt,
+        });
+
+        let plan = '';
+        for await (const textPart of result.textStream) {
+            plan += textPart;
+            if (this.onText) this.onText(textPart);
+        }
+        return plan;
     }
 
     private async callLLM<T>(prompt: string, schema: z.ZodType<T>, step: string, retries: number = 2): Promise<T> {
@@ -129,6 +213,7 @@ export class ResearchAgent {
                 let text = '';
 
                 if (this.provider === 'google') {
+                    // (Google implementation stays mostly same for now as it's not the primary focus of streaming requested)
                     const isV3 = this.modelId.includes('gemini-3');
                     const config: any = {
                         thinkingConfig: isV3 ? { thinkingLevel: 'HIGH' } : undefined,
@@ -143,11 +228,15 @@ export class ResearchAgent {
 
                     text = result.text || '';
                 } else {
-                    const result = await generateText({
+                    const result = await streamText({
                         model: this.aiModel,
                         prompt: combinedPrompt,
                     });
-                    text = result.text || '';
+
+                    for await (const textPart of result.textStream) {
+                        text += textPart;
+                        if (this.onText) this.onText(textPart);
+                    }
                 }
 
                 // --- ROBUST JSON EXTRACTION ---

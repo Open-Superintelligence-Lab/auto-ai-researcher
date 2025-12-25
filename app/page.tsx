@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, ArrowRight, Loader2, Play, LayoutDashboard, Cpu, FileText, Settings, FlaskConical, Zap, TrendingUp } from 'lucide-react';
+import { Sparkles, ArrowRight, Loader2, Play, LayoutDashboard, Cpu, FileText, Settings, FlaskConical, Zap, TrendingUp, RotateCcw } from 'lucide-react';
 import { ResearchCard } from './components/research/ResearchCard';
 import { ResearchLog } from './components/research/ResearchLog';
 import { ResearchReport } from './components/research/ResearchReport';
@@ -12,6 +12,9 @@ import { cn } from '@/lib/utils';
 export default function ResearchDashboard() {
   const [isInputting, setIsInputting] = useState(true);
   const [topic, setTopic] = useState('');
+  const [chatInput, setChatInput] = useState('');
+  const transcriptRef = useRef<HTMLDivElement>(null);
+
   const [state, setState] = useState<ResearchState>({
     phase: 'initial',
     topic: '',
@@ -21,6 +24,11 @@ export default function ResearchDashboard() {
     thoughts: [],
     tasks: [],
     papers: [],
+    transcript: '',
+    messages: [],
+    aiHistory: [],
+    executionMode: 'fast',
+    pendingToolCalls: [],
     resources: {
       gpus: [
         { id: 'gpu-1', name: 'NVIDIA H100', utilization: 0, memory: '80GB' },
@@ -28,6 +36,12 @@ export default function ResearchDashboard() {
       ]
     }
   });
+
+  useEffect(() => {
+    if (transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }
+  }, [state.transcript, state.messages, state.thoughts]);
 
   const [activeTab, setActiveTab] = useState<'research' | 'resources' | 'literature' | 'reports' | 'settings'>('research');
 
@@ -56,7 +70,15 @@ export default function ResearchDashboard() {
       ...prev,
       topic,
       phase: 'brainstorming',
-      logs: ['Requesting research agent...'],
+      transcript: '',
+      aiHistory: [],
+      logs: ['Initializing research pipeline...'],
+      messages: [{
+        id: `u-${Date.now()}`,
+        role: 'user',
+        content: `I want to research: ${topic}`,
+        type: 'text'
+      }],
       ideas: [],
       report: undefined
     }));
@@ -69,7 +91,8 @@ export default function ResearchDashboard() {
           topic,
           mode: 'start',
           provider: selectedProvider,
-          model: selectedModel
+          model: selectedModel,
+          executionMode: state.executionMode
         }),
       });
 
@@ -110,6 +133,138 @@ export default function ResearchDashboard() {
     }
   };
 
+  const handleChatSubmit = async () => {
+    if (!chatInput.trim()) return;
+
+    const userMsg = {
+      id: `u-${Date.now()}`,
+      role: 'user' as const,
+      content: chatInput,
+      type: 'text' as const
+    };
+
+    setState(prev => ({
+      ...prev,
+      messages: [...(prev.messages || []), userMsg]
+    }));
+    setChatInput('');
+  };
+
+  const resetResearch = () => {
+    setIsInputting(true);
+    setTopic('');
+    setChatInput('');
+    setState(prev => ({
+      phase: 'initial',
+      topic: '',
+      ideas: [],
+      logs: [],
+      debugLogs: [],
+      thoughts: [],
+      tasks: [],
+      papers: [],
+      transcript: '',
+      messages: [],
+      aiHistory: [],
+      executionMode: prev.executionMode,
+      pendingToolCalls: [],
+      resources: prev.resources
+    }));
+  };
+
+  const approvePlan = async () => {
+    setState(prev => ({
+      ...prev,
+      phase: 'brainstorming',
+      logs: [...prev.logs, 'Plan approved. Starting research loop...'],
+      messages: [...(prev.messages || []), {
+        id: `u-app-${Date.now()}`,
+        role: 'user',
+        content: 'I approve this plan. Proceed.',
+        type: 'text'
+      }]
+    }));
+
+    try {
+      const response = await fetch('/api/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: state.topic,
+          mode: 'approve-plan',
+          provider: selectedProvider,
+          model: selectedModel
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to approve plan');
+      await readStream(response);
+    } catch (error: any) {
+      setState(prev => ({ ...prev, phase: 'error', logs: [...prev.logs, `Error: ${error.message}`] }));
+    }
+  };
+
+  const executeToolExecution = async (toolCall: any) => {
+    setState(prev => ({
+      ...prev,
+      logs: [...prev.logs, `Executing tool: ${toolCall.toolName}...`],
+      // Add assistant message with tool call to aiHistory
+      aiHistory: [...prev.aiHistory, {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: toolCall.toolCallId,
+          type: 'function',
+          function: {
+            name: toolCall.toolName,
+            arguments: JSON.stringify(toolCall.args)
+          }
+        }]
+      }]
+    }));
+
+    try {
+      const response = await fetch('/api/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: state.topic,
+          mode: 'call-tool',
+          toolCall,
+          provider: selectedProvider,
+          model: selectedModel
+        }),
+      });
+
+      if (!response.ok) throw new Error('Tool execution failed');
+      await readStream(response);
+    } catch (error: any) {
+      setState(prev => ({ ...prev, phase: 'error', logs: [...prev.logs, `Error: ${error.message}`] }));
+    }
+  };
+
+  const continueResearchWithResult = async (history: any[]) => {
+    try {
+      const response = await fetch('/api/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: state.topic,
+          mode: 'start',
+          history,
+          provider: selectedProvider,
+          model: selectedModel,
+          executionMode: state.executionMode
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to continue research');
+      await readStream(response);
+    } catch (error: any) {
+      setState(prev => ({ ...prev, phase: 'error', logs: [...prev.logs, `Error: ${error.message}`] }));
+    }
+  };
+
   const readStream = async (response: Response) => {
     const reader = response.body?.getReader();
     if (!reader) return;
@@ -134,6 +289,9 @@ export default function ResearchDashboard() {
               const jsonStr = line.slice(2).trim();
               const update = JSON.parse(jsonStr) as ResearchUpdate;
               handleUpdate(update);
+            } else if (line.startsWith('0:')) {
+              const text = JSON.parse(line.slice(2).trim());
+              handleTextUpdate(text);
             }
           } catch (e) {
             console.warn('Failed to parse chunk:', line, e);
@@ -174,10 +332,30 @@ export default function ResearchDashboard() {
         case 'report':
           next.report = update.report;
           break;
+        case 'plan':
+          next.researchPlan = update.plan;
+          break;
+        case 'tool-call':
+          next.pendingToolCalls = [...(prev.pendingToolCalls || []), update.toolCall];
+          break;
+        case 'tool-result':
+          // Result of a tool call
+          next.pendingToolCalls = (prev.pendingToolCalls || []).filter(tc => tc.toolCallId !== update.toolCallId);
+          // Add to aiHistory for next turn
+          const resultMsg = { role: 'tool', toolCallId: update.toolCallId, content: JSON.stringify(update.result) };
+          next.aiHistory = [...(prev.aiHistory || []), resultMsg];
+          // Automatically continue research loop with results
+          setTimeout(() => continueResearchWithResult(next.aiHistory), 500);
+          break;
         case 'thought':
           next.thoughts = [...(prev.thoughts || []), update.thought];
-          // Also add to logs for backward compatibility or simple view
           next.logs = [...prev.logs, update.thought.content];
+          next.transcript = ''; // Clear live stream after persistent thought is added
+          // Also add to aiHistory
+          next.aiHistory = [...(prev.aiHistory || []), { role: 'assistant', content: update.thought.content }];
+          break;
+        case 'message':
+          next.messages = [...(prev.messages || []), update.message];
           break;
         case 'error':
           next.logs = [...prev.logs, `ERROR: ${update.message}`];
@@ -185,6 +363,13 @@ export default function ResearchDashboard() {
       }
       return next;
     });
+  };
+
+  const handleTextUpdate = (text: string) => {
+    setState(prev => ({
+      ...prev,
+      transcript: prev.transcript + text
+    }));
   };
 
   return (
@@ -307,6 +492,13 @@ export default function ResearchDashboard() {
 
           {state.phase !== 'initial' && (
             <div className="flex items-center gap-3">
+              <button
+                onClick={resetResearch}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-400 transition-all active:scale-95"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                New Research
+              </button>
               <div className="px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold text-zinc-400 tracking-tighter uppercase">
                 PID: {Math.floor(Math.random() * 90000 + 10000)}
               </div>
@@ -342,6 +534,21 @@ export default function ResearchDashboard() {
                 Enter a topic, and I will autonomously generate hypothesis, evaluate feasibility, and write a research proposal.
               </p>
 
+              <div className="flex bg-white/[0.03] border border-white/10 rounded-2xl p-1.5 mb-8 w-64">
+                <button
+                  onClick={() => setState(prev => ({ ...prev, executionMode: 'plan' }))}
+                  className={cn("flex-1 py-2 px-4 rounded-xl text-[10px] font-bold uppercase tracking-[0.2em] transition-all", state.executionMode === 'plan' ? "bg-purple-600 text-white shadow-xl shadow-purple-500/20" : "text-zinc-500 hover:text-zinc-300")}
+                >
+                  Plan
+                </button>
+                <button
+                  onClick={() => setState(prev => ({ ...prev, executionMode: 'fast' }))}
+                  className={cn("flex-1 py-2 px-4 rounded-xl text-[10px] font-bold uppercase tracking-[0.2em] transition-all", state.executionMode === 'fast' ? "bg-purple-600 text-white shadow-xl shadow-purple-500/20" : "text-zinc-500 hover:text-zinc-300")}
+                >
+                  Fast
+                </button>
+              </div>
+
               <div className="w-full relative group">
                 <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500" />
                 <div className="relative flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl p-2">
@@ -371,117 +578,121 @@ export default function ResearchDashboard() {
               {/* Main Content Area */}
               <div className="lg:col-span-3 flex flex-col gap-6 overflow-hidden">
                 {activeTab === 'research' ? (
-                  <div className="flex-1 overflow-y-auto pr-2 pb-20 scrollbar-hide">
-                    {/* Thinking Terminal */}
-                    {state.thoughts.length > 0 && (
-                      <div className="mb-6 p-4 rounded-xl border border-purple-500/20 bg-purple-500/5 backdrop-blur-sm relative overflow-hidden group">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-purple-500/50" />
-                        <div className="flex items-center gap-2 mb-2">
-                          <Zap className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-                          <span className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Agent Reasoning</span>
+                  <div className="flex-1 flex flex-col h-full overflow-hidden">
+                    {/* Chat Messages Area */}
+                    <div className="flex-1 overflow-y-auto pr-2 pb-6 space-y-6 scrollbar-hide" ref={transcriptRef}>
+                      {state.messages.length === 0 && !state.transcript && (
+                        <div className="flex flex-col items-center justify-center py-20 opacity-30">
+                          <Loader2 className="w-8 h-8 animate-spin mb-4" />
+                          <p className="text-sm font-medium tracking-widest uppercase">Initializing Agent...</p>
                         </div>
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={state.thoughts[state.thoughts.length - 1].id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="text-sm text-zinc-300 font-medium leading-relaxed"
-                          >
-                            {state.thoughts[state.thoughts.length - 1].content}
-                          </motion.div>
-                        </AnimatePresence>
-                        <div className="mt-3 flex gap-1">
-                          {state.thoughts.slice(-5).map((t, i) => (
-                            <div key={t.id} className={cn("h-1 flex-1 rounded-full", i === 4 ? "bg-purple-500" : "bg-purple-500/20")} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Autonomous Status Bar */}
-                    <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="p-4 rounded-xl border border-white/5 bg-white/[0.02] flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
-                          <LayoutDashboard className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest">Active Tasks</p>
-                          <p className="text-lg font-bold text-zinc-200">{state.tasks.length || 0}</p>
-                        </div>
-                      </div>
-                      <div className="p-4 rounded-xl border border-white/5 bg-white/[0.02] flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-400">
-                          <FileText className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest">Papers Indexed</p>
-                          <p className="text-lg font-bold text-zinc-200">{state.papers.length || 0}</p>
-                        </div>
-                      </div>
-                      <div className="p-4 rounded-xl border border-white/5 bg-white/[0.02] flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center text-green-400">
-                          <Zap className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest">Est. Iterations</p>
-                          <p className="text-lg font-bold text-zinc-200">12</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mb-6 flex items-end justify-between">
-                      <div>
-                        <h3 className="text-2xl font-semibold mb-2 text-zinc-200">
-                          {state.phase === 'complete' ? 'Research Findings' : 'Research Pipeline'}
-                        </h3>
-                        <p className="text-zinc-500 text-sm">
-                          {state.phase === 'brainstorming' && "Agent is ideating novel contributions."}
-                          {state.phase === 'awaiting-selection' && "Select a high-relevance hypothesis to proceed."}
-                          {state.phase === 'evaluating' && "Running automated feasibility checks."}
-                          {state.phase === 'deep-diving' && "Expansion using retrieved context."}
-                        </p>
-                      </div>
-
-                      {state.phase === 'awaiting-selection' && state.selectedIdeaId && (
-                        <motion.button
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          onClick={() => proceedWithSelection()}
-                          className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-xl font-medium shadow-lg shadow-purple-500/20 flex items-center gap-2"
-                        >
-                          Execute Research <ArrowRight className="w-4 h-4" />
-                        </motion.button>
                       )}
-                    </div>
 
-                    {state.report ? (
-                      <ResearchReport report={state.report} />
-                    ) : (
-                      <div className="flex flex-col gap-6">
-                        {state.tasks.length > 0 && (
-                          <div className="space-y-3">
-                            <h4 className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Active Task Queue</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                              {state.tasks.map(task => (
-                                <div key={task.id} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
-                                  <div className="flex items-center gap-2">
-                                    {task.status === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" /> : <div className="w-1.5 h-1.5 rounded-full bg-zinc-600" />}
-                                    <span className="text-xs font-medium text-zinc-300">{task.label}</span>
-                                  </div>
-                                  <span className={cn(
-                                    "text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-tighter",
-                                    task.status === 'running' ? "bg-purple-500/20 text-purple-400" : "bg-black/20 text-zinc-500"
-                                  )}>{task.status}</span>
-                                </div>
-                              ))}
-                            </div>
+                      {/* Unified Chat History */}
+                      {state.messages.map((msg) => (
+                        <motion.div
+                          key={msg.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={cn("flex gap-4 max-w-3xl", msg.role === 'user' ? "ml-auto flex-row-reverse" : "")}
+                        >
+                          <div className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center border flex-shrink-0",
+                            msg.role === 'user' ? "bg-blue-500/10 border-blue-500/30" : "bg-purple-500/20 border-purple-500/30"
+                          )}>
+                            {msg.role === 'user' ? <LayoutDashboard className="w-4 h-4 text-blue-400" /> : <Cpu className="w-4 h-4 text-purple-400" />}
                           </div>
-                        )}
+                          <div className={cn(
+                            "p-4 rounded-2xl text-sm leading-relaxed shadow-sm",
+                            msg.role === 'user' ? "bg-blue-600/10 border border-blue-500/20 text-zinc-200 rounded-tr-none" : "bg-white/5 border border-white/10 text-zinc-300 rounded-tl-none"
+                          )}>
+                            {msg.content}
+                          </div>
+                        </motion.div>
+                      ))}
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <AnimatePresence>
-                            {state.ideas.filter(i => i.status !== 'rejected').map((idea, i) => (
-                              <div key={idea.id || i} onClick={() => {
+                      {/* Thoughts / Reasoning in Chat */}
+                      {state.thoughts.map((thought, i) => (
+                        <motion.div
+                          key={thought.id}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="flex gap-4 max-w-3xl"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center border border-white/5 flex-shrink-0">
+                            <Zap className="w-4 h-4 text-zinc-500" />
+                          </div>
+                          <div className="bg-zinc-900/40 border border-white/5 rounded-2xl p-4 text-zinc-400 text-xs italic leading-relaxed font-mono">
+                            {thought.content}
+                          </div>
+                        </motion.div>
+                      ))}
+
+                      {/* Live Streaming Content */}
+                      {state.transcript && (
+                        <div className="flex gap-4 max-w-3xl">
+                          <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30 flex-shrink-0">
+                            <Cpu className="w-4 h-4 text-purple-400" />
+                          </div>
+                          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-zinc-300 text-sm leading-relaxed font-mono whitespace-pre-wrap">
+                            {state.transcript}
+                            <motion.span
+                              animate={{ opacity: [0, 1, 0] }}
+                              transition={{ repeat: Infinity, duration: 0.8 }}
+                              className="inline-block w-2 h-4 bg-purple-500 ml-1 translate-y-0.5"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Pending Tool Calls */}
+                      {state.pendingToolCalls && state.pendingToolCalls.length > 0 && (
+                        <div className="space-y-4 pt-4">
+                          <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-12">
+                            <Settings className="w-3 h-3" /> System Action Required
+                          </div>
+                          <div className="pl-12 space-y-3">
+                            {state.pendingToolCalls.map((tc, idx) => (
+                              <motion.div
+                                key={tc.toolCallId || idx}
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="bg-white/5 border border-white/10 rounded-2xl p-6 max-w-xl group"
+                              >
+                                <div className="flex items-start justify-between mb-4">
+                                  <div>
+                                    <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1">
+                                      Tool Suggestion: <span className="text-purple-400">{tc.toolName}</span>
+                                    </h4>
+                                    <p className="text-[10px] text-zinc-500 font-mono">
+                                      {JSON.stringify(tc.args, null, 2)}
+                                    </p>
+                                  </div>
+                                  <div className="p-2 rounded-lg bg-zinc-800/50 border border-white/5 group-hover:border-purple-500/30 transition-colors">
+                                    <Cpu className="w-4 h-4 text-purple-400" />
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => executeToolExecution(tc)}
+                                  className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2"
+                                >
+                                  Execute Tool <Play className="w-3 h-3 fill-current" />
+                                </button>
+                              </motion.div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Display Results as Cards in Chat Flow */}
+                      {state.ideas.length > 0 && (
+                        <div className="space-y-4 pt-4">
+                          <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-12">
+                            <Sparkles className="w-3 h-3" /> Potential Research Frontiers
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-12">
+                            {state.ideas.filter(i => i.status !== 'rejected').map(idea => (
+                              <div key={idea.id} onClick={() => {
                                 if (state.phase === 'awaiting-selection') {
                                   setState(prev => ({ ...prev, selectedIdeaId: idea.id }));
                                 }
@@ -501,16 +712,61 @@ export default function ResearchDashboard() {
                                 />
                               </div>
                             ))}
-                          </AnimatePresence>
-                          {state.ideas.length === 0 && (
-                            <div className="col-span-2 flex flex-col items-center justify-center py-20 opacity-50">
-                              <Loader2 className="w-8 h-8 animate-spin mb-4" />
-                              <span className="text-sm">Initializing pipeline...</span>
-                            </div>
-                          )}
+                          </div>
                         </div>
+                      )}
+
+                      {state.report && (
+                        <div className="pl-12 pt-8">
+                          <ResearchReport report={state.report} />
+                        </div>
+                      )}
+
+                      {/* Plan Approval Trigger */}
+                      {state.phase === 'awaiting-plan-approval' && (
+                        <div className="flex justify-center py-6">
+                          <button
+                            onClick={() => approvePlan()}
+                            className="bg-purple-600 hover:bg-purple-500 text-white px-8 py-3 rounded-2xl font-bold shadow-2xl shadow-purple-500/40 flex items-center gap-3 transform hover:scale-105 transition-all"
+                          >
+                            Approve & Start Research <Play className="w-5 h-5 fill-current" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Execution Trigger in Flow */}
+                      {state.phase === 'awaiting-selection' && state.selectedIdeaId && (
+                        <div className="flex justify-center py-6">
+                          <button
+                            onClick={() => proceedWithSelection()}
+                            className="bg-purple-600 hover:bg-purple-500 text-white px-8 py-3 rounded-2xl font-bold shadow-2xl shadow-purple-500/40 flex items-center gap-3 transform hover:scale-105 transition-all"
+                          >
+                            Execute Deep Research <ArrowRight className="w-5 h-5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Chat Input at Bottom */}
+                    <div className="pt-4 border-t border-white/5">
+                      <div className="relative group">
+                        <input
+                          type="text"
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleChatSubmit()}
+                          placeholder="Ask the agent anything..."
+                          className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 text-zinc-300 focus:outline-none focus:border-purple-500/50 transition-all pr-16"
+                        />
+                        <button
+                          onClick={handleChatSubmit}
+                          disabled={!chatInput.trim()}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-purple-600 text-white rounded-xl shadow-lg hover:bg-purple-500 transition-all disabled:opacity-50"
+                        >
+                          <ArrowRight className="w-5 h-5" />
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
                 ) : activeTab === 'literature' ? (
                   <div className="flex-1 overflow-y-auto pr-2 pb-20 space-y-6">
