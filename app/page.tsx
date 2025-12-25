@@ -27,7 +27,6 @@ export default function ResearchDashboard() {
     transcript: '',
     messages: [],
     aiHistory: [],
-    executionMode: 'fast',
     isResearchMode: false,
     pendingToolCalls: [],
     resources: {
@@ -92,7 +91,6 @@ export default function ResearchDashboard() {
           mode: 'start',
           provider: selectedProvider,
           model: selectedModel,
-          executionMode: state.executionMode,
           isResearchMode: false,
           history: [{ role: 'user', content: `Hi! I'm interested in ${topic}.` }]
         }),
@@ -158,7 +156,6 @@ export default function ResearchDashboard() {
           mode: 'start',
           provider: selectedProvider,
           model: selectedModel,
-          executionMode: state.executionMode,
           isResearchMode: state.isResearchMode,
           history: nextAiHistory
         }),
@@ -197,7 +194,6 @@ export default function ResearchDashboard() {
           mode: 'start',
           provider: selectedProvider,
           model: selectedModel,
-          executionMode: state.executionMode,
           isResearchMode: true,
           history: [...state.aiHistory, { role: 'user', content: 'Let\'s start the research and use tools now.' }]
         }),
@@ -226,44 +222,13 @@ export default function ResearchDashboard() {
       transcript: '',
       messages: [],
       aiHistory: [],
-      executionMode: prev.executionMode,
       isResearchMode: false,
       pendingToolCalls: [],
       resources: prev.resources
     }));
   };
 
-  const approvePlan = async () => {
-    setState(prev => ({
-      ...prev,
-      phase: 'brainstorming',
-      logs: [...prev.logs, 'Plan approved. Starting research loop...'],
-      messages: [...(prev.messages || []), {
-        id: `u-app-${Date.now()}`,
-        role: 'user',
-        content: 'I approve this plan. Proceed.',
-        type: 'text'
-      }]
-    }));
 
-    try {
-      const response = await fetch('/api/research', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: state.topic,
-          mode: 'approve-plan',
-          provider: selectedProvider,
-          model: selectedModel
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to approve plan');
-      await readStream(response);
-    } catch (error: any) {
-      setState(prev => ({ ...prev, phase: 'error', logs: [...prev.logs, `Error: ${error.message}`] }));
-    }
-  };
 
   const executeToolExecution = async (toolCall: any) => {
     setState(prev => ({
@@ -314,8 +279,7 @@ export default function ResearchDashboard() {
           mode: 'start',
           history,
           provider: selectedProvider,
-          model: selectedModel,
-          executionMode: state.executionMode
+          model: selectedModel
         }),
       });
 
@@ -393,9 +357,7 @@ export default function ResearchDashboard() {
         case 'report':
           next.report = update.report;
           break;
-        case 'plan':
-          next.researchPlan = update.plan;
-          break;
+
         case 'tool-call':
           next.pendingToolCalls = [...(prev.pendingToolCalls || []), update.toolCall];
           break;
@@ -595,20 +557,7 @@ export default function ResearchDashboard() {
                 Enter a topic, and I will autonomously generate hypothesis, evaluate feasibility, and write a research proposal.
               </p>
 
-              <div className="flex bg-white/[0.03] border border-white/10 rounded-2xl p-1.5 mb-8 w-64">
-                <button
-                  onClick={() => setState(prev => ({ ...prev, executionMode: 'plan' }))}
-                  className={cn("flex-1 py-2 px-4 rounded-xl text-[10px] font-bold uppercase tracking-[0.2em] transition-all", state.executionMode === 'plan' ? "bg-purple-600 text-white shadow-xl shadow-purple-500/20" : "text-zinc-500 hover:text-zinc-300")}
-                >
-                  Plan
-                </button>
-                <button
-                  onClick={() => setState(prev => ({ ...prev, executionMode: 'fast' }))}
-                  className={cn("flex-1 py-2 px-4 rounded-xl text-[10px] font-bold uppercase tracking-[0.2em] transition-all", state.executionMode === 'fast' ? "bg-purple-600 text-white shadow-xl shadow-purple-500/20" : "text-zinc-500 hover:text-zinc-300")}
-                >
-                  Fast
-                </button>
-              </div>
+
 
               <div className="w-full relative group">
                 <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500" />
@@ -783,17 +732,7 @@ export default function ResearchDashboard() {
                         </div>
                       )}
 
-                      {/* Plan Approval Trigger */}
-                      {state.phase === 'awaiting-plan-approval' && (
-                        <div className="flex justify-center py-6">
-                          <button
-                            onClick={() => approvePlan()}
-                            className="bg-purple-600 hover:bg-purple-500 text-white px-8 py-3 rounded-2xl font-bold shadow-2xl shadow-purple-500/40 flex items-center gap-3 transform hover:scale-105 transition-all"
-                          >
-                            Approve & Start Research <Play className="w-5 h-5 fill-current" />
-                          </button>
-                        </div>
-                      )}
+
 
                       {/* Initial Chatting to Research Trigger */}
                       {state.phase === 'chatting' && (

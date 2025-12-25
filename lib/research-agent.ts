@@ -62,22 +62,7 @@ export class ResearchAgent {
         }
     }
 
-    async runAutonomous(topic: string, mode: 'plan' | 'fast' = 'fast', history: any[] = [], isResearchMode: boolean = true) {
-        if (mode === 'plan' && history.length === 0) {
-            this.logThought(`[PLAN MODE] Formulating a research strategy for: "${topic}"`);
-            const plan = await this.generatePlan(topic);
-            if (this.onUpdate) this.onUpdate({ type: 'plan', plan });
-            if (this.onMessage) {
-                this.onMessage({
-                    id: `plan-${Date.now()}`,
-                    role: 'assistant',
-                    content: `Here is my proposed research plan for **${topic}**:\n\n${plan}\n\nShall I proceed with literature discovery?`,
-                    type: 'text'
-                });
-            }
-            return { phase: 'awaiting-plan-approval', plan };
-        }
-
+    async runAutonomous(topic: string, history: any[] = [], isResearchMode: boolean = true) {
         // Only log thought in research mode
         if (isResearchMode) {
             this.logThought(`Initializing agentic research loop stage for: "${topic}"`);
@@ -85,16 +70,20 @@ export class ResearchAgent {
 
         const combinedMessages = history;
 
-        const systemPrompt = `You are an autonomous research agent. Your goal is to research whatever user tells yout to research.
+        const systemPrompt = isResearchMode
+            ? `You are an autonomous research agent. Your goal is to research whatever the user tells you to research.
             Follow these steps:
             1. Search literature to understand the field.
             2. Brainstorm several novel ideas based on the literature.
             You must call tools to perform these actions.
-            Always explain your reasoning before calling a tool.
+            Always explain your reasoning before calling a tool.`
+            : `You are a helpful, friendly AI research assistant.
+            
+            Be conversational, informative, and engaging. Have a natural discussion with the user about their topic.
             
             IMPORTANT: Do NOT use any tools or start the research pipeline unless the user explicitly asks you to. 
             Just chat naturally and answer their questions. When they're ready to begin autonomous research, 
-            they will tell you, and then you can use tools.`
+            they will tell you, and then you can use tools.`;
 
         const result = await streamText({
             model: this.aiModel,
@@ -177,28 +166,7 @@ export class ResearchAgent {
         throw new Error(`Unknown tool: ${toolName}`);
     }
 
-    async generatePlan(topic: string): Promise<string> {
-        const prompt = `Create a structured research plan for the topic: "${topic}".
-        The plan should include:
-        1. Core Objectives
-        2. Key Literature Areas to Explore
-        3. Potential Methodological Approaches
-        4. Expected Novel Contributions
-        
-        Keep it concise but professional.`;
 
-        const result = await streamText({
-            model: this.aiModel,
-            prompt,
-        });
-
-        let plan = '';
-        for await (const textPart of result.textStream) {
-            plan += textPart;
-            if (this.onText) this.onText(textPart);
-        }
-        return plan;
-    }
 
     private async callLLM<T>(prompt: string, schema: z.ZodType<T>, step: string, retries: number = 2): Promise<T> {
         let lastError: any;

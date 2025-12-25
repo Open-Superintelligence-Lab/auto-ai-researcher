@@ -1,5 +1,5 @@
 
-export type ResearchPhase = 'initial' | 'chatting' | 'brainstorming' | 'awaiting-selection' | 'evaluating' | 'deep-diving' | 'complete' | 'error' | 'awaiting-plan-approval';
+export type ResearchPhase = 'initial' | 'chatting' | 'brainstorming' | 'awaiting-selection' | 'evaluating' | 'deep-diving' | 'complete' | 'error';
 
 export interface ResearchIdea {
     id: string;
@@ -50,9 +50,7 @@ export interface ResearchState {
     transcript: string;
     messages: ChatMessage[];
     aiHistory: any[];
-    executionMode: 'plan' | 'fast';
     isResearchMode: boolean;
-    researchPlan?: string;
     pendingToolCalls: any[];
     resources: {
         gpus: { id: string; name: string; utilization: number; memory: string }[];
@@ -95,7 +93,7 @@ export type ResearchUpdate =
     | { type: 'report'; report: ResearchReport }
     | { type: 'tasks'; tasks: ResearchTask[] }
     | { type: 'papers'; papers: ResearchPaper[] }
-    | { type: 'plan'; plan: string }
+
     | { type: 'tool-call'; toolCall: any }
     | { type: 'tool-result'; result: any, toolCallId: string }
     | { type: 'thought'; thought: ResearchThought }

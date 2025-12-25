@@ -12,7 +12,6 @@ export async function POST(req: Request) {
         ideas: existingIdeas,
         provider = 'openrouter',
         model = 'openai/gpt-4o-mini',
-        executionMode = 'fast',
         history = [],
         toolCall = null,
         isResearchMode = true
@@ -41,12 +40,7 @@ export async function POST(req: Request) {
 
             try {
                 if (mode === 'start') {
-                    const result = await agent.runAutonomous(topic, executionMode as 'plan' | 'fast', history, isResearchMode);
-                    sendUpdate({ type: 'phase', phase: result.phase });
-                }
-
-                if (mode === 'approve-plan') {
-                    const result = await agent.runAutonomous(topic, 'fast', history, isResearchMode);
+                    const result = await agent.runAutonomous(topic, history, isResearchMode);
                     sendUpdate({ type: 'phase', phase: result.phase });
                 }
 
