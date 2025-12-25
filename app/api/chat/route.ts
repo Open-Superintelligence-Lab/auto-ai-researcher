@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     const { messages } = await req.json();
 
     const result = await streamText({
-        model: openrouter.chat('xiaomi/mimo-v2-flash:free'),
+        model: openrouter.chat('nvidia/nemotron-3-nano-30b-a3b:free'),
         messages: convertToCoreMessages(messages),
     });
 

@@ -31,11 +31,14 @@ export default function ResearchDashboard() {
   const [activeTab, setActiveTab] = useState<'research' | 'resources' | 'literature' | 'reports' | 'settings'>('research');
 
   const [selectedProvider, setSelectedProvider] = useState<'openrouter' | 'google'>('openrouter');
-  const [selectedModel, setSelectedModel] = useState('xiaomi/mimo-v2-flash:free');
+  const [selectedModel, setSelectedModel] = useState('nvidia/nemotron-3-nano-30b-a3b:free');
 
   const models = {
     openrouter: [
-      { id: 'xiaomi/mimo-v2-flash:free', label: 'MiMo V2 Flash (Free)' },
+      { id: 'nvidia/nemotron-3-nano-30b-a3b:free', label: 'Nemotron-3 Nano 30B (Free)' },
+      { id: 'mistralai/devstral-2512:free', label: 'Devstral 2512 (Free)' },
+      { id: 'nex-agi/deepseek-v3.1-nex-n1:free', label: 'DeepSeek V3.1 Nex-N1 (Free)' },
+      { id: 'arcee-ai/trinity-mini:free', label: 'Trinity Mini (Free)' },
     ],
     google: [
       { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },

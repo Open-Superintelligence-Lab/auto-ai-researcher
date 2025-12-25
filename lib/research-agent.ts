@@ -25,7 +25,7 @@ export class ResearchAgent {
 
     constructor(
         provider: ProviderType = 'openrouter',
-        modelId: string = 'xiaomi/mimo-v2-flash:free',
+        modelId: string = 'nvidia/nemotron-3-nano-30b-a3b:free',
         onDebug?: (log: import('@/types/research').ResearchDebugLog) => void
     ) {
         this.provider = provider;
@@ -86,10 +86,20 @@ export class ResearchAgent {
                 this.logDebug('response', step, jsonStr);
 
                 try {
-                    const parsed = JSON.parse(jsonStr);
+                    let parsed = JSON.parse(jsonStr);
+
+                    // FALLBACK: If the model returns an array instead of the requested object wrapper
+                    if (Array.isArray(parsed)) {
+                        if (step === 'brainstorm') {
+                            parsed = { ideas: parsed };
+                        } else if (step === 'evaluate') {
+                            parsed = { evaluations: parsed };
+                        }
+                    }
+
                     return schema.parse(parsed);
                 } catch (e) {
-                    console.error(`[Attempt ${i + 1}] Parsing failed:`, jsonStr, e);
+                    console.error(`[Attempt ${i + 1}] Schema validation failed:`, jsonStr, e);
                     lastError = e;
                 }
             } catch (e) {
@@ -125,7 +135,13 @@ export class ResearchAgent {
         const prompt = `You are an elite research scientist.
       Generate 5 distinct, novel, and innovative research hypotheses or topics related to: "${topic}".
       Focus on ideas that are theoretically grounded but explore new frontiers.
-      Provide a clear title and a 2-3 sentence description for each.`;
+      Provide your response EXACTLY as a JSON object with this structure:
+      {
+        "ideas": [
+          { "title": "...", "description": "..." },
+          ...
+        ]
+      }`;
 
         this.logDebug('call', 'brainstorm', prompt);
 
@@ -154,6 +170,20 @@ export class ResearchAgent {
       Score each on Novelty, Feasibility, and Impact (1-10).
       Provide a concise reasoning for your scores.
       
+      Provide your response EXACTLY as a JSON object with this structure:
+      {
+        "evaluations": [
+          {
+            "title": "...", 
+            "noveltyScore": number, 
+            "feasibilityScore": number, 
+            "impactScore": number, 
+            "reasoning": "..."
+          },
+          ...
+        ]
+      }
+
       Ideas to evaluate:
       ${JSON.stringify(ideas.map(i => ({ title: i.title, description: i.description })), null, 2)}`;
 
@@ -199,13 +229,17 @@ export class ResearchAgent {
       Context/Description: ${idea.description}
       Reasoning behind selection: ${idea.reasoning}
       
-      Structure the report with:
-      1. Abstract/Summary
-      2. Introduction & Background
-      3. Methodology / Theoretical Framework
-      4. Expected Results & Implications
-      5. Potential Challenges
-      
+      Provide your response EXACTLY as a JSON object with this structure:
+      {
+        "title": "...",
+        "summary": "...",
+        "sections": [
+          { "heading": "...", "content": "..." },
+          ...
+        ],
+        "references": ["...", "..."]
+      }
+
       Make it substantial, academic in tone, but clear.`;
 
         this.logDebug('call', 'deepDive', prompt);
