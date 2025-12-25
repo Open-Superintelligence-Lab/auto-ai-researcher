@@ -14,7 +14,8 @@ export async function POST(req: Request) {
         model = 'openai/gpt-4o-mini',
         executionMode = 'fast',
         history = [],
-        toolCall = null
+        toolCall = null,
+        isResearchMode = true
     } = await req.json();
     console.log(`[API] Mode: ${mode}, Provider: ${provider}, Model: ${model}`);
 
@@ -40,12 +41,12 @@ export async function POST(req: Request) {
 
             try {
                 if (mode === 'start') {
-                    const result = await agent.runAutonomous(topic, executionMode as 'plan' | 'fast', history);
+                    const result = await agent.runAutonomous(topic, executionMode as 'plan' | 'fast', history, isResearchMode);
                     sendUpdate({ type: 'phase', phase: result.phase });
                 }
 
                 if (mode === 'approve-plan') {
-                    const result = await agent.runAutonomous(topic, 'fast', history);
+                    const result = await agent.runAutonomous(topic, 'fast', history, isResearchMode);
                     sendUpdate({ type: 'phase', phase: result.phase });
                 }
 

@@ -62,7 +62,7 @@ export class ResearchAgent {
         }
     }
 
-    async runAutonomous(topic: string, mode: 'plan' | 'fast' = 'fast', history: any[] = []) {
+    async runAutonomous(topic: string, mode: 'plan' | 'fast' = 'fast', history: any[] = [], isResearchMode: boolean = true) {
         if (mode === 'plan' && history.length === 0) {
             this.logThought(`[PLAN MODE] Formulating a research strategy for: "${topic}"`);
             const plan = await this.generatePlan(topic);
@@ -93,16 +93,23 @@ export class ResearchAgent {
             ? [{ role: 'user', content: `Start researching "${topic}". Begin with literature discovery.` }]
             : history;
 
-        const result = await streamText({
-            model: this.aiModel,
-            system: `You are an autonomous research agent. Your goal is to research "${topic}".
+        const systemPrompt = isResearchMode
+            ? `You are an autonomous research agent. Your goal is to research "${topic}".
             Follow these steps:
             1. Search literature to understand the field.
             2. Brainstorm several novel ideas based on the literature.
             You must call tools to perform these actions.
-            Always explain your reasoning before calling a tool.`,
+            Always explain your reasoning before calling a tool.`
+            : `You are a helpful research assistant. Chat with the user about their topic: "${topic}". 
+            Be helpful, informative, and collaborative. 
+            Do NOT use any tools or start the research pipeline yet. 
+            Simply discuss the topic and wait for the user to tell you to begin the research.`;
+
+        const result = await streamText({
+            model: this.aiModel,
+            system: systemPrompt,
             messages: combinedMessages,
-            tools: {
+            tools: isResearchMode ? {
                 searchLiterature: {
                     description: 'Search for scientific papers on a topic.',
                     inputSchema: z.object({ topic: z.string() }),
@@ -111,7 +118,7 @@ export class ResearchAgent {
                     description: 'Generate research ideas/hypotheses.',
                     inputSchema: z.object({ topic: z.string(), context: z.string() }),
                 }
-            },
+            } : {},
         });
 
         let fullText = '';

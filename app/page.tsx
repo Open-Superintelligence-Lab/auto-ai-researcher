@@ -28,6 +28,7 @@ export default function ResearchDashboard() {
     messages: [],
     aiHistory: [],
     executionMode: 'fast',
+    isResearchMode: false,
     pendingToolCalls: [],
     resources: {
       gpus: [
@@ -69,18 +70,17 @@ export default function ResearchDashboard() {
     setState(prev => ({
       ...prev,
       topic,
-      phase: 'brainstorming',
+      phase: 'chatting',
+      isResearchMode: false,
       transcript: '',
       aiHistory: [],
-      logs: ['Initializing research pipeline...'],
+      logs: ['Opening discussion channel...'],
       messages: [{
         id: `u-${Date.now()}`,
         role: 'user',
-        content: `I want to research: ${topic}`,
+        content: `I'm interested in: ${topic}. Tell me more about it before we start research.`,
         type: 'text'
-      }],
-      ideas: [],
-      report: undefined
+      }]
     }));
 
     try {
@@ -92,11 +92,13 @@ export default function ResearchDashboard() {
           mode: 'start',
           provider: selectedProvider,
           model: selectedModel,
-          executionMode: state.executionMode
+          executionMode: state.executionMode,
+          isResearchMode: false,
+          history: [{ role: 'user', content: `I'm interested in: ${topic}. Tell me more about it before we start research.` }]
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to start research');
+      if (!response.ok) throw new Error('Failed to start discussion');
       await readStream(response);
     } catch (error: any) {
       setState(prev => ({ ...prev, phase: 'error', logs: [...prev.logs, `Error: ${error.message}`] }));
@@ -143,11 +145,69 @@ export default function ResearchDashboard() {
       type: 'text' as const
     };
 
+    setState(prev => {
+      const nextMessages = [...(prev.messages || []), userMsg];
+      const nextAiHistory = [...(prev.aiHistory || []), { role: 'user', content: chatInput }];
+
+      // We need to call API here
+      fetch('/api/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: state.topic,
+          mode: 'start',
+          provider: selectedProvider,
+          model: selectedModel,
+          executionMode: state.executionMode,
+          isResearchMode: state.isResearchMode,
+          history: nextAiHistory
+        }),
+      }).then(readStream);
+
+      return {
+        ...prev,
+        messages: nextMessages,
+        aiHistory: nextAiHistory
+      };
+    });
+    setChatInput('');
+  };
+
+  const initiateResearch = async () => {
     setState(prev => ({
       ...prev,
-      messages: [...(prev.messages || []), userMsg]
+      phase: 'brainstorming',
+      isResearchMode: true,
+      logs: [...prev.logs, 'Initializing autonomous research pipeline...'],
+      messages: [...prev.messages, {
+        id: `u-init-${Date.now()}`,
+        role: 'user',
+        content: 'Let\'s start the research and use tools now.',
+        type: 'text'
+      }],
+      aiHistory: [...prev.aiHistory, { role: 'user', content: 'Let\'s start the research and use tools now.' }]
     }));
-    setChatInput('');
+
+    try {
+      const response = await fetch('/api/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: state.topic,
+          mode: 'start',
+          provider: selectedProvider,
+          model: selectedModel,
+          executionMode: state.executionMode,
+          isResearchMode: true,
+          history: [...state.aiHistory, { role: 'user', content: 'Let\'s start the research and use tools now.' }]
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to initiate research');
+      await readStream(response);
+    } catch (error: any) {
+      setState(prev => ({ ...prev, phase: 'error', logs: [...prev.logs, `Error: ${error.message}`] }));
+    }
   };
 
   const resetResearch = () => {
@@ -167,6 +227,7 @@ export default function ResearchDashboard() {
       messages: [],
       aiHistory: [],
       executionMode: prev.executionMode,
+      isResearchMode: false,
       pendingToolCalls: [],
       resources: prev.resources
     }));
@@ -730,6 +791,19 @@ export default function ResearchDashboard() {
                             className="bg-purple-600 hover:bg-purple-500 text-white px-8 py-3 rounded-2xl font-bold shadow-2xl shadow-purple-500/40 flex items-center gap-3 transform hover:scale-105 transition-all"
                           >
                             Approve & Start Research <Play className="w-5 h-5 fill-current" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Initial Chatting to Research Trigger */}
+                      {state.phase === 'chatting' && (
+                        <div className="flex justify-center py-6">
+                          <button
+                            onClick={() => initiateResearch()}
+                            className="bg-purple-600 hover:bg-purple-500 text-white px-8 py-4 rounded-2xl font-bold shadow-2xl shadow-purple-500/40 flex items-center gap-3 transform hover:scale-105 transition-all group"
+                          >
+                            <Sparkles className="w-5 h-5 group-hover:animate-pulse" />
+                            Start Autonomous Research Pipeline
                           </button>
                         </div>
                       )}

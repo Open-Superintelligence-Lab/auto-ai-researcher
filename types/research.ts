@@ -1,5 +1,5 @@
 
-export type ResearchPhase = 'initial' | 'brainstorming' | 'awaiting-selection' | 'evaluating' | 'deep-diving' | 'complete' | 'error' | 'awaiting-plan-approval';
+export type ResearchPhase = 'initial' | 'chatting' | 'brainstorming' | 'awaiting-selection' | 'evaluating' | 'deep-diving' | 'complete' | 'error' | 'awaiting-plan-approval';
 
 export interface ResearchIdea {
     id: string;
@@ -51,6 +51,7 @@ export interface ResearchState {
     messages: ChatMessage[];
     aiHistory: any[];
     executionMode: 'plan' | 'fast';
+    isResearchMode: boolean;
     researchPlan?: string;
     pendingToolCalls: any[];
     resources: {
