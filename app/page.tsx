@@ -17,63 +17,75 @@ export default function ResearchDashboard() {
     topic: '',
     ideas: [],
     logs: [],
+    debugLogs: [],
   });
 
   const startResearch = async () => {
     if (!topic.trim()) return;
 
     setIsInputting(false);
-    setState(prev => ({ ...prev, topic, phase: 'brainstorming', logs: ['Initializing research agent...'] }));
+    setState(prev => ({
+      ...prev,
+      topic,
+      phase: 'brainstorming',
+      logs: ['Requesting research agent...']
+    }));
 
     try {
+      console.log('Fetching /api/research...');
       const response = await fetch('/api/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic }),
       });
 
-      if (!response.ok) throw new Error('Failed to start research');
+      console.log('Response received:', response.status);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to start research: ${response.status} ${errorText}`);
+      }
 
+      setState(prev => ({ ...prev, logs: [...prev.logs, 'Connection established. Waiting for agent...'] }));
       const reader = response.body?.getReader();
       if (!reader) return;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-        const text = new TextDecoder().decode(value);
-        // The stream might contain multiple JSON objects concatenated
-        // We need to parse them carefully
-        // Note: AI SDK's createDataStreamResponse sends chunks in a specific format
-        // Usually line-delimited or special format.
-        // Let's assume simplest custom line-delimited JSON for now 
-        // OR better: handle the specific format if known.
-        // Actually, createDataStreamResponse expects us to use useChat or useCompletion usually,
-        // but here we did a custom stream. Let's try raw parsing.
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        // Handling potentially split chunks (basic implementation)
-        const lines = text.split('\n').filter(Boolean);
-        for (const line of lines) {
-          try {
-            // The AI SDK might prefix with "0:" for text or similar.
-            // But our custom writeData sends raw JSON objects stringified if using standard stream plumbing.
-            // However, createDataStreamResponse wraps it.
-            // Let's rely on manual parsing of the 'data' part if it's the Vercel protocol
-            // Or if we just did raw strings.
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-            // If the API uses dataStream.writeData, it formats it as:
-            // 2: [...] (for data)
-            // We need to parse that.
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            console.log('[Stream] Line received:', line);
 
-            if (line.startsWith('2:')) {
-              const jsonStr = line.slice(2); // Remove prefix
-              const update = JSON.parse(JSON.parse(jsonStr)) as ResearchUpdate; // It's double stringified usually
-              handleUpdate(update);
+            try {
+              if (line.startsWith('2:')) {
+                const jsonStr = line.slice(2).trim();
+                if (!jsonStr) continue;
+                // Double parse might be needed if the server double-stringified,
+                // but based on my API code: JSON.stringify(update) -> encoder.encode(`2: ${json}\n`)
+                // It is SINGLE stringified.
+                // WAIT! My previous code in page.tsx had: `JSON.parse(JSON.parse(jsonStr))`
+                // My API route code: `const json = JSON.stringify(update); controller.enqueue(...)`
+                // So it is only stringified ONCE.
+                // I should only parse ONCE.
+                const update = JSON.parse(jsonStr) as ResearchUpdate;
+                handleUpdate(update);
+              }
+            } catch (e) {
+              console.warn('Failed to parse chunk:', line, e);
             }
-          } catch (e) {
-            console.warn('Failed to parse chunk:', line, e);
           }
         }
+      } finally {
+        reader.releaseLock();
       }
     } catch (error) {
       console.error(error);
@@ -91,6 +103,9 @@ export default function ResearchDashboard() {
           break;
         case 'log':
           next.logs = [...prev.logs, update.message];
+          break;
+        case 'debug':
+          next.debugLogs = [...(prev.debugLogs || []), update.log];
           break;
         case 'ideas':
           next.ideas = update.ideas;
@@ -227,7 +242,7 @@ export default function ResearchDashboard() {
 
             {/* Right Panel: Logs & terminal */}
             <div className="lg:col-span-1 h-[400px] lg:h-auto lg:sticky lg:top-6">
-              <ResearchLog logs={state.logs} />
+              <ResearchLog logs={state.logs} debugLogs={state.debugLogs} />
             </div>
           </div>
         )}
