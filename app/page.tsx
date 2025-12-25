@@ -3,12 +3,15 @@
 import { useChat } from '@ai-sdk/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Bot, User, Sparkles, Loader2, Trash2 } from 'lucide-react';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 export default function ChatPage() {
-  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } = useChat();
+  const [input, setInput] = useState('');
+  const { messages, status, sendMessage, setMessages } = useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const isLoading = status === 'submitted' || status === 'streaming';
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -18,6 +21,14 @@ export default function ChatPage() {
 
   const clearChat = () => {
     setMessages([]);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+
+    sendMessage({ text: input });
+    setInput('');
   };
 
   return (
@@ -97,13 +108,16 @@ export default function ChatPage() {
                     ? "bg-zinc-900 text-zinc-200 rounded-tr-none border border-white/5"
                     : "bg-white/[0.03] text-zinc-300 rounded-tl-none border border-white/[0.05]"
                 )}>
-                  {m.content}
+                  {m.parts.map((part, i) => {
+                    if (part.type === 'text') return <div key={i}>{part.text}</div>;
+                    return null;
+                  })}
                 </div>
               </motion.div>
             ))}
           </AnimatePresence>
 
-          {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
+          {isLoading && (
             <div className="flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <div className="w-9 h-9 rounded-full bg-white/[0.03] border border-white/[0.05] flex items-center justify-center">
                 <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
@@ -129,11 +143,11 @@ export default function ChatPage() {
           >
             <textarea
               value={input}
-              onChange={handleInputChange}
+              onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  handleSubmit(e as any);
+                  handleSubmit(e as unknown as React.FormEvent);
                 }
               }}
               placeholder="Message MiMo..."
