@@ -31,16 +31,14 @@ export default function ResearchDashboard() {
   const [activeTab, setActiveTab] = useState<'research' | 'resources' | 'literature' | 'reports' | 'settings'>('research');
 
   const [selectedProvider, setSelectedProvider] = useState<'openrouter' | 'google'>('openrouter');
-  const [selectedModel, setSelectedModel] = useState('openai/gpt-4o-mini');
+  const [selectedModel, setSelectedModel] = useState('xiaomi/mimo-v2-flash:free');
 
   const models = {
     openrouter: [
-      { id: 'openai/gpt-4o-mini', label: 'GPT-4o mini' },
-      { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B' },
-      { id: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+      { id: 'xiaomi/mimo-v2-flash:free', label: 'MiMo V2 Flash (Free)' },
     ],
     google: [
-      { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro' },
+      { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
       { id: 'gemini-2.0-flash-exp', label: 'Gemini 2.0 Flash' },
       { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
     ]
