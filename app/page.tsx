@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, ArrowRight, Cpu, LayoutDashboard, Play, FlaskConical } from 'lucide-react';
 import { ResearchState, ResearchUpdate } from '@/types/research';
+import { MarkdownRenderer } from './components/MarkdownRenderer';
 
 export default function ResearchDashboard() {
   const [chatInput, setChatInput] = useState('');
@@ -113,6 +114,8 @@ export default function ResearchDashboard() {
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let streamedText = '';
+    let hasToolCalls = false;
 
     try {
       while (true) {
@@ -129,9 +132,13 @@ export default function ResearchDashboard() {
           try {
             if (line.startsWith('2:')) {
               const update = JSON.parse(line.slice(2).trim()) as ResearchUpdate;
+              if (update.type === 'tool-call') {
+                hasToolCalls = true;
+              }
               handleUpdate(update);
             } else if (line.startsWith('0:')) {
               const text = JSON.parse(line.slice(2).trim());
+              streamedText += text;
               setState(prev => ({ ...prev, transcript: prev.transcript + text }));
             }
           } catch (e) {
@@ -141,6 +148,19 @@ export default function ResearchDashboard() {
       }
     } finally {
       reader.releaseLock();
+
+      // Convert transcript to actual message if there's text
+      if (streamedText) {
+        setState(prev => ({
+          ...prev,
+          messages: [...prev.messages, {
+            id: `a-${Date.now()}`,
+            role: 'assistant',
+            content: streamedText,
+          }],
+          transcript: '',
+        }));
+      }
     }
   };
 
@@ -239,28 +259,35 @@ export default function ResearchDashboard() {
                   key={msg.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+                  className={`flex gap-5 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
                 >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center border ${msg.role === 'user' ? 'bg-blue-500/10 border-blue-500/30' : 'bg-purple-500/20 border-purple-500/30'}`}>
-                    {msg.role === 'user' ? <LayoutDashboard className="w-4 h-4 text-blue-400" /> : <Cpu className="w-4 h-4 text-purple-400" />}
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center border shrink-0 shadow-lg ${msg.role === 'user'
+                      ? 'bg-gradient-to-br from-blue-500/20 to-blue-600/10 border-blue-500/30 ring-1 ring-blue-500/10'
+                      : 'bg-gradient-to-br from-purple-500/30 to-purple-600/10 border-purple-500/40 ring-1 ring-purple-500/10 shadow-purple-500/5'
+                    }`}>
+                    {msg.role === 'user' ? <LayoutDashboard className="w-4.5 h-4.5 text-blue-400" /> : <Cpu className="w-4.5 h-4.5 text-purple-300" />}
                   </div>
-                  <div className={`p-4 rounded-2xl text-sm max-w-2xl ${msg.role === 'user' ? 'bg-blue-600/10 border border-blue-500/20 rounded-tr-none' : 'bg-white/5 border border-white/10 rounded-tl-none'}`}>
-                    {msg.content}
+                  <div className={`p-5 rounded-2xl text-sm max-w-[85%] leading-relaxed shadow-sm ${msg.role === 'user'
+                      ? 'bg-blue-600/10 border border-blue-500/20 rounded-tr-none text-zinc-200'
+                      : 'bg-white/[0.03] border border-white/10 rounded-tl-none text-zinc-300 backdrop-blur-sm shadow-black/20'
+                    }`}>
+                    <MarkdownRenderer content={msg.content} />
                   </div>
                 </motion.div>
               ))}
 
               {state.transcript && (
-                <div className="flex gap-4">
-                  <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30">
-                    <Cpu className="w-4 h-4 text-purple-400" />
+                <div className="flex gap-5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500/30 to-purple-600/10 border border-purple-500/40 flex items-center justify-center shrink-0 shadow-lg shadow-purple-500/5 ring-1 ring-purple-500/10">
+                    <Cpu className="w-4.5 h-4.5 text-purple-300" />
                   </div>
-                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-sm max-w-2xl whitespace-pre-wrap">
-                    {state.transcript}
+                  <div className="bg-white/[0.03] border border-white/10 rounded-2xl rounded-tl-none p-5 text-sm max-w-[85%] backdrop-blur-sm shadow-black/20 shadow-sm relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-purple-500/40 to-transparent" />
+                    <MarkdownRenderer content={state.transcript} />
                     <motion.span
                       animate={{ opacity: [0, 1, 0] }}
                       transition={{ repeat: Infinity, duration: 0.8 }}
-                      className="inline-block w-2 h-4 bg-purple-500 ml-1"
+                      className="inline-block w-2.5 h-4.5 bg-purple-500/80 ml-1 rounded-sm align-middle shadow-[0_0_8px_rgba(168,85,247,0.5)]"
                     />
                   </div>
                 </div>
