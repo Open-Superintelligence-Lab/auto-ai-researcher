@@ -9,9 +9,11 @@ interface ResearchCardProps {
     idea: ResearchIdea;
     isSelected?: boolean;
     isEvaluating?: boolean;
+    onDiscard?: () => void;
+    showControls?: boolean;
 }
 
-export function ResearchCard({ idea, isSelected, isEvaluating }: ResearchCardProps) {
+export function ResearchCard({ idea, isSelected, isEvaluating, onDiscard, showControls }: ResearchCardProps) {
     return (
         <motion.div
             layout
@@ -28,13 +30,37 @@ export function ResearchCard({ idea, isSelected, isEvaluating }: ResearchCardPro
             )}
         >
             {isSelected && (
-                <div className="absolute -top-3 -right-3">
+                <div className="absolute -top-3 -right-3 z-10">
                     <span className="relative flex h-6 w-6">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
                         <span className="relative inline-flex rounded-full h-6 w-6 bg-purple-500 items-center justify-center">
                             <Target className="w-3 h-3 text-white" />
                         </span>
                     </span>
+                </div>
+            )}
+
+            {showControls && (
+                <div className="absolute top-4 right-4 flex gap-2">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onDiscard?.();
+                        }}
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 border border-white/5 transition-colors"
+                        title="Discard Idea"
+                    >
+                        <Zap className="w-3.5 h-3.5 rotate-180" />
+                    </button>
+                    <button
+                        className={cn(
+                            "p-1.5 rounded-lg border transition-colors",
+                            isSelected ? "bg-purple-500/20 text-purple-400 border-purple-500/30" : "bg-white/5 text-zinc-500 border-white/5"
+                        )}
+                        title="Select Idea"
+                    >
+                        <Target className="w-3.5 h-3.5" />
+                    </button>
                 </div>
             )}
 

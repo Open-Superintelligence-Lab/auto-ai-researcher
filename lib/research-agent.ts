@@ -1,3 +1,4 @@
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateObject } from 'ai';
 import { z } from 'zod';
@@ -7,19 +8,31 @@ const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY || '',
 });
 
+const googleProvider = createGoogleGenerativeAI({
+    apiKey: process.env.GEMINI_API_KEY || '',
+});
+
+export type ProviderType = 'openrouter' | 'google';
+
 // Using a cost-effective model for the research loop
 // Using a reliable free model for the research loop
-// Using a highly reliable model
-const MODEL_ID = 'openai/gpt-4o-mini';
-
 export class ResearchAgent {
-    private model = openrouter.chat(MODEL_ID) as unknown as import('ai').LanguageModel;
+    private model: import('ai').LanguageModel;
     private onDebug?: (log: import('@/types/research').ResearchDebugLog) => void;
-
     private debugCounter = 0;
 
-    constructor(onDebug?: (log: import('@/types/research').ResearchDebugLog) => void) {
+    constructor(
+        provider: ProviderType = 'openrouter',
+        modelId: string = 'openai/gpt-4o-mini',
+        onDebug?: (log: import('@/types/research').ResearchDebugLog) => void
+    ) {
         this.onDebug = onDebug;
+
+        if (provider === 'google') {
+            this.model = googleProvider(modelId) as unknown as import('ai').LanguageModel;
+        } else {
+            this.model = openrouter.chat(modelId) as unknown as import('ai').LanguageModel;
+        }
     }
 
     private logDebug(type: 'call' | 'response', step: string, content: string) {
@@ -61,6 +74,7 @@ export class ResearchAgent {
         return object.ideas.map((idea, index) => ({
             id: `idea-${Date.now()}-${index}`,
             ...idea,
+            status: 'pending',
         }));
     }
 

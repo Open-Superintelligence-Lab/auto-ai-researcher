@@ -1,5 +1,5 @@
 
-export type ResearchPhase = 'initial' | 'brainstorming' | 'evaluating' | 'deep-diving' | 'complete' | 'error';
+export type ResearchPhase = 'initial' | 'brainstorming' | 'awaiting-selection' | 'evaluating' | 'deep-diving' | 'complete' | 'error';
 
 export interface ResearchIdea {
     id: string;
@@ -10,6 +10,7 @@ export interface ResearchIdea {
     impactScore?: number;
     totalScore?: number;
     reasoning?: string;
+    status: 'pending' | 'accepted' | 'rejected';
 }
 
 export interface ResearchReport {
@@ -30,6 +31,29 @@ export interface ResearchState {
     report?: ResearchReport;
     logs: string[];
     debugLogs: ResearchDebugLog[];
+    tasks: ResearchTask[];
+    papers: ResearchPaper[];
+    resources: {
+        gpus: { id: string; name: string; utilization: number; memory: string }[];
+    };
+}
+
+export interface ResearchTask {
+    id: string;
+    label: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    priority: 'low' | 'medium' | 'high';
+}
+
+export interface ResearchPaper {
+    id: string;
+    title: string;
+    authors: string[];
+    year: number;
+    citationCount: number;
+    relevance: number; // 1-100
+    summary: string;
+    url: string;
 }
 
 export interface ResearchDebugLog {
@@ -48,4 +72,6 @@ export type ResearchUpdate =
     | { type: 'evaluation'; ideaId: string; evaluation: Partial<ResearchIdea> }
     | { type: 'selection'; ideaId: string }
     | { type: 'report'; report: ResearchReport }
+    | { type: 'tasks'; tasks: ResearchTask[] }
+    | { type: 'papers'; papers: ResearchPaper[] }
     | { type: 'error'; message: string };
