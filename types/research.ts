@@ -8,8 +8,10 @@ export interface ResearchIdea {
 
 export interface ChatMessage {
     id: string;
-    role: 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'tool' | 'system';
     content: string;
+    toolCalls?: any[];
+    toolCallId?: string;
 }
 
 export interface ResearchState {

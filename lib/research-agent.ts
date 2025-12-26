@@ -49,18 +49,15 @@ export class ResearchAgent {
     async chat(messages: any[]) {
         const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || 'current topic';
 
-        const systemPrompt = `You are an elite autonomous research agent. Your goal is to research topics thoroughly using scientific literature.
+        const systemPrompt = `You are an elite, concise autonomous research agent. 
 
-Current context: User is asking about "${lastUserMessage}"
+Your workflow:
+1. Lead with 'searchLiterature' immediately if you need facts.
+2. Use 'brainstormIdeas' for analysis.
+3. Keep your conversational responses short and direct. Don't repeat yourself.
+4. Use Markdown for clarity.
 
-When asked to research a topic:
-1. Use 'searchLiterature' to find relevant papers. Use the specific research topic as the 'topic' argument.
-2. Once you have papers, analyze them and use 'brainstormIdeas' to generate novel hypotheses.
-3. Present your findings clearly using Markdown with nice headings and structure.
-
-Example tool usage: searchLiterature({ topic: "transformer architecture RoPE" })
-
-Be proactive and scientific. Always try to find papers first.`;
+Current topic focus: "${lastUserMessage}"`;
 
         const result = await streamText({
             model: this.aiModel,
@@ -68,11 +65,11 @@ Be proactive and scientific. Always try to find papers first.`;
             messages: messages,
             tools: {
                 searchLiterature: {
-                    description: 'Search for scientific papers on a topic. Topic should be specific.',
+                    description: 'Search scientific papers. Input: { "topic": "string" }',
                     inputSchema: z.object({ topic: z.string() }),
                 },
                 brainstormIdeas: {
-                    description: 'Generate research ideas/hypotheses based on a topic.',
+                    description: 'Brainstorm hypotheses. Input: { "topic": "string" }',
                     inputSchema: z.object({ topic: z.string(), context: z.string().optional() }),
                 }
             },
@@ -85,6 +82,12 @@ Be proactive and scientific. Always try to find papers first.`;
         }
 
         const toolCalls = await result.toolCalls;
+
+        // Safety: If no text and no tool calls, something might be wrong with the provider
+        if (!fullText && (!toolCalls || toolCalls.length === 0)) {
+            if (this.onText) this.onText("The researcher encountered an empty response. Please try again or select a different model.");
+        }
+
         if (toolCalls && toolCalls.length > 0) {
             console.log('[AGENT] Tool calls suggested:', toolCalls.map(t => t.toolName));
             if (this.onUpdate) {
@@ -114,7 +117,13 @@ Be proactive and scientific. Always try to find papers first.`;
             console.log(`[AGENT] Searching for topic: ${topic}`);
             const papers = await this.searchLiterature(topic);
             if (this.onUpdate) this.onUpdate({ type: 'papers', papers });
-            return papers.map(p => ({ title: p.title, summary: p.summary, year: p.year }));
+
+            // Return concise summaries to prevent context bloat and over-verbosity
+            return papers.slice(0, 5).map(p => ({
+                title: p.title,
+                summary: p.summary.length > 500 ? p.summary.slice(0, 500) + '...' : p.summary,
+                year: p.year
+            }));
         }
         if (toolName === 'brainstormIdeas') {
             const topic = safeArgs.topic || safeArgs.query || 'novel research directions';

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, ArrowRight, Cpu, LayoutDashboard, Play, FlaskConical } from 'lucide-react';
+import { Sparkles, ArrowRight, Cpu, LayoutDashboard, Play, FlaskConical, X } from 'lucide-react';
 import { ResearchState, ResearchUpdate } from '@/types/research';
 import { MarkdownRenderer } from './components/MarkdownRenderer';
 
@@ -57,7 +57,7 @@ export default function ResearchDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: newMessages,
+          messages: formatMessagesForAI(newMessages),
           provider: selectedProvider,
           model: selectedModel,
         }),
@@ -70,8 +70,29 @@ export default function ResearchDashboard() {
     }
   };
 
+  const [isExecutingTool, setIsExecutingTool] = useState(false);
+
+  const disapproveTool = (toolCall: any) => {
+    setState(prev => ({
+      ...prev,
+      pendingToolCalls: prev.pendingToolCalls.filter(tc => (tc.toolCallId || tc.id) !== (toolCall.toolCallId || toolCall.id))
+    }));
+  };
+
+  const formatMessagesForAI = (msgs: any[]) => {
+    return msgs.map(m => {
+      const formatted: any = { role: m.role, content: m.content };
+      if (m.toolCalls) formatted.toolCalls = m.toolCalls;
+      if (m.toolCallId) formatted.toolCallId = m.toolCallId;
+      return formatted;
+    });
+  };
+
   const executeTool = async (toolCall: any) => {
+    if (isExecutingTool) return;
+    setIsExecutingTool(true);
     try {
+      // Find the message that contains this tool call and ensure it's in the history sent to AI
       const response = await fetch('/api/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -86,6 +107,8 @@ export default function ResearchDashboard() {
       await readStream(response);
     } catch (error: any) {
       console.error('Error:', error);
+    } finally {
+      setIsExecutingTool(false);
     }
   };
 
@@ -95,7 +118,7 @@ export default function ResearchDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: history,
+          messages: formatMessagesForAI(history),
           provider: selectedProvider,
           model: selectedModel,
         }),
@@ -176,20 +199,26 @@ export default function ResearchDashboard() {
           next.papers = update.papers;
           break;
         case 'tool-call':
-          // If we have a transcript, save it as assistant message first so history is correct
-          if (prev.transcript) {
+          // We need to attach the tool call metadata to the assistant message
+          // If the last message is assistant, add it there.
+          const lastMsg = prev.messages[prev.messages.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant') {
+            const updatedMessages = [...prev.messages];
+            const assistantMsg = { ...lastMsg };
+            assistantMsg.toolCalls = [...(assistantMsg.toolCalls || []), update.toolCall];
+            updatedMessages[updatedMessages.length - 1] = assistantMsg;
+            next.messages = updatedMessages;
+          } else {
+            // Create a new assistant message for the tool call
             next.messages = [...prev.messages, {
               id: `a-${Date.now()}`,
               role: 'assistant' as const,
-              content: prev.transcript
+              content: prev.transcript || '',
+              toolCalls: [update.toolCall]
             }];
             next.transcript = '';
           }
           next.pendingToolCalls = [...prev.pendingToolCalls, update.toolCall];
-
-          // Auto-execute research tools
-          console.log('[UI] Auto-executing tool:', update.toolCall.toolName);
-          setTimeout(() => executeTool(update.toolCall), 500);
           break;
         case 'tool-result':
           next.pendingToolCalls = prev.pendingToolCalls.filter(tc => (tc.toolCallId || tc.id) !== update.toolCallId);
@@ -198,14 +227,13 @@ export default function ResearchDashboard() {
             id: `tr-${Date.now()}`,
             role: 'tool' as any,
             toolCallId: update.toolCallId,
-            content: JSON.stringify(update.result)
+            content: typeof update.result === 'string' ? update.result : JSON.stringify(update.result)
           };
 
           next.messages = [...prev.messages, resultMsg];
-          // Clear transcript in case there was any
           next.transcript = '';
 
-          // Trigger the continuation
+          // Trigger continuation with the new history
           setTimeout(() => continueChat(next.messages), 100);
           break;
         case 'error':
@@ -284,16 +312,29 @@ export default function ResearchDashboard() {
                   className={`flex gap-5 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
                 >
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center border shrink-0 shadow-lg ${msg.role === 'user'
-                    ? 'bg-gradient-to-br from-blue-500/20 to-blue-600/10 border-blue-500/30 ring-1 ring-blue-500/10'
-                    : 'bg-gradient-to-br from-purple-500/30 to-purple-600/10 border-purple-500/40 ring-1 ring-purple-500/10 shadow-purple-500/5'
+                      ? 'bg-gradient-to-br from-blue-500/20 to-blue-600/10 border-blue-500/30 ring-1 ring-blue-500/10'
+                      : msg.role === 'tool'
+                        ? 'bg-zinc-800/20 border-zinc-700/30'
+                        : 'bg-gradient-to-br from-purple-500/30 to-purple-600/10 border-purple-500/40 ring-1 ring-purple-500/10 shadow-purple-500/5'
                     }`}>
-                    {msg.role === 'user' ? <LayoutDashboard className="w-4.5 h-4.5 text-blue-400" /> : <Cpu className="w-4.5 h-4.5 text-purple-300" />}
+                    {msg.role === 'user' ? <LayoutDashboard className="w-4.5 h-4.5 text-blue-400" /> :
+                      msg.role === 'tool' ? <FlaskConical className="w-4.5 h-4.5 text-zinc-500" /> :
+                        <Cpu className="w-4.5 h-4.5 text-purple-300" />}
                   </div>
                   <div className={`p-5 rounded-2xl text-sm max-w-[85%] leading-relaxed shadow-sm ${msg.role === 'user'
-                    ? 'bg-blue-600/10 border border-blue-500/20 rounded-tr-none text-zinc-200'
-                    : 'bg-white/[0.03] border border-white/10 rounded-tl-none text-zinc-300 backdrop-blur-sm shadow-black/20'
+                      ? 'bg-blue-600/10 border border-blue-500/20 rounded-tr-none text-zinc-200'
+                      : msg.role === 'tool'
+                        ? 'bg-black/20 border border-white/5 font-mono text-zinc-400 text-xs'
+                        : 'bg-white/[0.03] border border-white/10 rounded-tl-none text-zinc-300 backdrop-blur-sm shadow-black/20'
                     }`}>
-                    <MarkdownRenderer content={msg.content} />
+                    {msg.role === 'tool' ? (
+                      <div className="space-y-2">
+                        <div className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Tool Output</div>
+                        <MarkdownRenderer content={`\`\`\`json\n${msg.content}\n\`\`\``} className="opacity-80" />
+                      </div>
+                    ) : (
+                      <MarkdownRenderer content={msg.content} />
+                    )}
                   </div>
                 </motion.div>
               ))}
@@ -322,24 +363,38 @@ export default function ResearchDashboard() {
                       key={tc.toolCallId || idx}
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      className="bg-white/5 border border-white/10 rounded-2xl p-6 max-w-xl"
+                      className="bg-white/5 border border-white/10 rounded-2xl p-6 max-w-xl shadow-xl shadow-black/20"
                     >
                       <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1">
-                            Tool: <span className="text-purple-400">{tc.toolName}</span>
+                        <div className="w-full">
+                          <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-widest mb-3 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+                            Tool: <span className="text-purple-400 font-mono tracking-normal">{tc.toolName}</span>
                           </h4>
-                          <p className="text-[10px] text-zinc-500 font-mono">
-                            {JSON.stringify(tc.args, null, 2)}
-                          </p>
+                          <MarkdownRenderer content={`\`\`\`json\n${JSON.stringify(tc.args, null, 2)}\n\`\`\``} />
                         </div>
                       </div>
-                      <button
-                        onClick={() => executeTool(tc)}
-                        className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2"
-                      >
-                        Execute <Play className="w-3 h-3 fill-current" />
-                      </button>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => executeTool(tc)}
+                          disabled={isExecutingTool}
+                          className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed group"
+                        >
+                          {isExecutingTool ? (
+                            <>Agent Working... <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /></>
+                          ) : (
+                            <>Approve & Run <Play className="w-3 h-3 group-hover:scale-110 transition-transform" /></>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => disapproveTool(tc)}
+                          disabled={isExecutingTool}
+                          className="px-4 py-3 bg-white/5 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 rounded-xl text-xs font-bold transition-all border border-white/10 hover:border-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Decline"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </motion.div>
                   ))}
                 </div>
